@@ -1,0 +1,104 @@
+---
+title: "Hierarchial Clustering"
+output: 
+  html_document: 
+    highlight: pygments
+    number_sections: yes
+    theme: cerulean
+    toc: yes
+    toc_float: yes
+---
+# Theory:  
+  Hierarchial clustering is an alternative to k-Means clustering and has advantage where number of clusters need not be specified at the  beginning. Hierarchial clustering output can be represented in reverse tree like structure called *dendogram*. It is a graphical representation where each observations are at the bottom in their own clusture. Next level they are clustered basedon some dissimilarity measure. It continous until all observations are in single clusture. Height of the clustre indicates the dissimilarity measure.  
+
+## Dissimilarity measure :  
+Most commonly *Euclidian distance* is used to measure dissimilarity measure. Here features with similar values will be clustered. Other commonly used dissimilarity measure is *correlation based distance*. Correlation based distance clusters features with similar *shape*.  
+
+## Linkage:  
+The actual measure of dissimilarity measure between 2 clusters when they have multiple observations.  
+    + **Single** : It measures dissimilarity among all observations from cluster 1 with all observations in cluster 2. Chooses *smallest* dissimilarity value. It tends to create *spagetti* type clusters.  
+    + **Complete**: It measures dissimilarity among all observations from cluster 1 with all observations in cluster 2. Chooses *largest* dissimilarity value. It tends to create *balanced* type clusters.  
+    + **Average**: It measures dissimilarity among all observations from cluster 1 with all observations in cluster 2. Chooses *average* dissimilarity value. It tends to create *balanced* type clusters.  
+    + **Centroid**: - It measures dissimilarity among all centroid vector of clusture 1 and 2. It tends to create *inversed* type clusters which are hard to visualise and understand.  
+    
+## Types of algorithms :  
+
+There are 2 types of hierarchial clustering menthods.  
+
+- **AGNES** : Agglomerative analysis. Bottom up.Start with each observation in its own cluster. Start joining them to form cluster until root.  
+
+- **DIANA** : Divisive analysis. Top down. Start with all observations in one cluster (root). Keep dividing until single observations in leaf.
+Along with above 2, number of clusters to be considered also plays important role. Should the features be standardised in some way shape and form before applying choosen algorithm? Should all features be scaled to have 0 mean and standard deviation 1?  
+
+# Apply hierarchial clustering to datasets.  
+
+## USArrests data:  
+  It is  built in dataset. 50 states, 3 crimes per 100,000 population and Urban pop in %.  
+
+### Load data and EDA:  
+
+  All features are in different scales, use scale. No missing values.
+
+```{r USArrests_load, cache=TRUE,warning=FALSE}
+library(GGally)
+df <- USArrests
+head(df)
+summary(df)
+sum(is.na(df))
+df <- scale(df)
+df <- data.frame(df)
+ggpairs(df)
+```
+
+### AGNES Clustering:  
+  'hclust' provides AGNES.  
+  
+```{r UA_AGNES_RUN, cache=TRUE,warning=FALSE}
+library(cluster)
+dt <- dist(df,method = 'euclidian')
+hmod_c <- hclust(dt,method='complete')
+plot(hmod_c,cex=0.6)
+hmod_s <- hclust(dt,method='single')
+plot(hmod_s,cex=0.6)
+hmod_a <- hclust(dt,method='average')
+plot(hmod_a,cex=0.6)
+```
+  
+Complete linkage above has more balanced and interpretable clustering. So lets continue with 'complete'. Like in KMeans clustering, we can find optimal number of clusters based on within ss, gap stat and silhouette.  
+
+```{r, UA_Optimal_cl, cache=TRUE, warning=FALSE}
+library(factoextra)
+fviz_nbclust(df, FUNcluster = hcut, method='wss')
+fviz_nbclust(df,FUNcluster = hcut, method='silhouette')
+gap_stat <- clusGap(df, FUN = hcut, nstart = 25, K.max = 10, B = 50)
+fviz_gap_stat(gap_stat)
+```
+  
+All three optimal charts indicate 4 clusters is optimal. Let's go with 4 clusters.  
+```{r UA_cl_cut, cache=TRUE,warning=FALSE}
+h_mod_c_4 <- cutree(hmod_c,4)
+fviz_cluster(object=list(data=df,cluster=h_mod_c_4))
+df <- cbind(df,h_mod_c_4)
+colnames(df)[colnames(df) == 'h_mod_c_4'] <-  'AGNES_CLU'
+```
+
+### DIANA clustering.  
+
+This is top downclustering method. DIANA method is available in 'Cluster' package.  
+```{r UA_DIANA, cache=TRUE, warning=FALSE}
+hd_mod_c <- diana(df)
+#plot(hd_mod_c)
+pltree(hd_mod_c,cex=0.6, hang = -1)
+DIANA_CLS <- cutree(hd_mod_c,4)
+df<-cbind(df,DIANA_CLS)
+```
+
+```{r us_both_cl,cache=TRUE,warning=FALSE,fig.height=8,fig.width=10}
+ggplot() +
+  theme_bw() +
+  geom_point(aes(x=rownames(df),y=df$AGNES_CLU),alpha=0.5,shape = 1,color='blue',size=10) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(title = 'states clsuter by diana and agnes',x = 'States', y = 'cluster') +
+  geom_point(aes(x=rownames(df),y=df$DIANA_CLS),alpha=0.5,shape=2)
+table(df$AGNES_CLU,df$DIANA_CLS)
+```

@@ -1,0 +1,159 @@
+---
+title: "Principal Component Analysis"
+output: 
+  html_document: 
+    highlight: pygments
+    number_sections: yes
+    theme: cerulean
+    toc: yes
+    toc_float: yes
+---
+# Introduction   
+  **PCA** Principal component analysis is used to summarize high dimension variable space with small number of representative variables. It identifies few principal components which convey as much information contained in all variables combined. It is from a class of methods called *feature extractions* which creates new variables from existing variables and also assigns importance to each of the new variables created. These importance can be used for select most important first few to represet the data. The data is projected onto these new variables. **Note this will also result is existing variables less interpretable.**  
+  
+  
+>  Number of principal components << *p*.  
+
+  This can be further used to do regression where it is called **principal component regression** or simply to visualize high dimensional data in lower dimension as part of **unsupervised learning**.  
+
+## Principal Components:  
+-  First principal component is computed on *n* observations with space of *p* dimensions $X_{1},X_{2}...X_{p}$ as follows  
+    $Z_{1} = \theta_{11}*X_{1}+\theta_{21}*X_{2}+....+\theta_{p1}*X_{p1}$  
+    Where sum of all  $\theta_{j}^2$ is 1. $\theta$ are called loading factors for principal components.  
+    $\theta_{m}$= ($\theta_{m1},\theta_{m2}.....\theta_{mp})^T$ is called **loading vector**.  
+    $Z_{1} = \theta_{1}*X_{1} + \theta_{2}*X_{2}$ is called **scoring vector**.  
+  First principal component thus represents the direction in *p* dimension which has the maximum variance.  
+
+- Second principal component is computed same as first principal component with additional constraint that it needs to be uncorrelated to first principal component. As second principal component is uncorrelated to first, it will be perpendicular to it also representing second most variance of *p* variables.  
+
+## Scaling the variables.  
+
+  Principal components represent most variance in *p* dimension space of variables. However if the variables are not all in same scale, and have difference variances, it will un-duelly influence the PC computations. So when all measures are not in same scale of measurements, it is necessary to individually scale each variable which have 0 mean and standard deviation of 1.  
+  
+## Uniqueness of PCS.  
+  
+  Principal components are unique up to sign. As these represent direction of maximum variance, loading vector from 2 different tools will be same however the sign might flip.  
+  
+## How many PCA to use.  
+
+  There are *min(n-1,p)* principal components. All these PC combined represent the whole variance in data. However the idea of principal components is to reduce number of dimensions. So the question is how many are enough? Each of the PC explains a proportion of variance in entire dataset. It is called **Proportion of variance explained** PEV. This number will be continuously reducing from one to next PC. A graph of cumulative *PVE* vs number of PC is plotted. It is called scree chart. The thumb rule is to use number of PC where the scree chart shows elbow indicating no major enhancement to the variance explained by adding next PC.  
+  
+# Lab excercises  
+
+## USArrests data.
+
+Default data set in R. List 5 states and crime rates(per 1000) and urban popolation percentage.
+load data and check mean and variance. They all have different means and variances. So they need to be scaled before applying PCA.
+  
+```{r data_load, warning=FALSE}
+library(DT)
+attach(USArrests)
+dim(USArrests)
+datatable(USArrests)
+apply(USArrests,2,mean)
+apply(USArrests,2,var)
+```
+    
+
+```{r comp_PCA, warning=FALSE}
+USA_PCA <- prcomp(USArrests,scale=TRUE)
+USA_PCA$rotation
+USA_PCA$sdev
+cumsum(USA_PCA$sdev^2/sum(USA_PCA$sdev^2))
+USA_PCA$scale
+USA_PCA$center
+```
+
+*prcomp* has 4 variables. *ratation* provides loading vectors for all 4 principal components. 
+For e.g.  
+$PC1 = -0.53*Murder - 0.58*Assault - 0.27*UrbanPop - 0.543*Rape$  
+
+*prcopm* sdev provides, standard deviation of PCAs. *Variance* is calculated by squaring sdev, `r USA_PCA$sdev^2`. Cumulative proportion of variance explained **(PVE)** is `r cumsum(USA_PCA$sdev^2)/sum(USA_PCA$sdev^2)`.  
+
+*prcomp* x variable provided score vector for each of the principal component.
+```{r plot_grpahs, warning=FALSE}
+library(ggplot2)
+cpve <- cbind(seq(1:4),cumsum(USA_PCA$sdev^2/sum(USA_PCA$sdev^2)))
+cpve<-data.frame(cpve)
+colnames(cpve) <- c('pca','var')
+cpve <- rbind(c(0,0),cpve)
+ggplot(cpve,aes(x=pca,y=var,group=1)) +
+  geom_point() +
+  geom_line() +
+  labs(title = 'USArrests PCA Variance explained', x = 'Principal components', y = 'cumulative variance expplained') +
+  scale_y_continuous(limits=c(0,1))
+
+biplot(USA_PCA, scale=0)
+```
+
+As the PCA are accurate up to sign, lets flip the sign.
+
+```{r flip_plot}
+USA_PCA$x = -USA_PCA$x
+USA_PCA$rotation = -USA_PCA$rotation
+biplot(USA_PCA, scale = 0, main = 'biplot from correlation matrix', cex=0.6)
+
+```
+
+
+
+## Boston Housing - PCR
+Perform principal component analysis on Boston housing data to get principal components and then perform regression.
+Boston dataset has 13 independent variables and median value of housing and dependent variable.  
+The objective is to reduce 13 varibles to less using PCA and perform regression.l
+
+```{r Data_load, warning=FALSE}
+library(MASS)
+attach(Boston)
+head(Boston)
+Boston_indep <- Boston[,c(seq(1:13))]
+Boston_indep$chas <- as.factor(Boston_indep$chas)
+str(Boston_indep)
+Boston_dep <- Boston[,14]
+```
+
+```{r Explore_BostonData, warning=FALSE, fig.height=12, fig.width=16, cache=TRUE}
+library(GGally)
+ggpairs(Boston_indep, title = 'Pairwise scatter plot')
+```
+
+- Paiwsie graph is great tool. In a snapshot, it gives lot of information on the parameter relations. This small number of variables are produces 70 plots to look at. It clearly shows some independent variables correlated. For e.g. zone and distance, indistry and nox.    
+- Mean of each variables is `r apply(Boston_indep[,c(1,2,3,5,6,7,8,9,10,11,12,13)],2,mean )`  
+- Variance of each variable is `r apply(Boston_indep[,c(1,2,3,5,6,7,8,9,10,11,12,13)],2,var)`
+
+
+**Lets do principal component computations. As the parameters are not in same measure, they need to be scaled. prcomp automatically standardises the parameters **
+
+*PRCOMP works (should be used) only with continous variables.*. CHAS variable is converted back to numerical.
+
+```{r PCA, warning=FALSE, fig.height=12, fig.width=16}
+Boston_indep$chas <- as.numeric(Boston_indep$chas)
+Bost_PCA <- prcomp(Boston_indep,scale = TRUE)
+Bost_PCA$rotation
+biplot(Bost_PCA, scale=0, cex=0.3)
+screeplot(Bost_PCA)
+cumsum(Bost_PCA$sdev^2/sum(Bost_PCA$sdev^2))
+
+```
+
+- First 6 PCA provide 85% of total variances explained. Lets do regression on medv using these 6 PCAs
+
+```{r PCR, warning=FALSE}
+bost_mod_var <- Bost_PCA$x[,c(1,2,3,4,5)]
+train <- sample(seq(1:nrow(bost_mod_var)),nrow(bost_mod_var)*0.8)
+bost_train <- bost_mod_var[train,]
+bost_test <- bost_mod_var[-train,]
+medv_train <- Boston_dep[train]
+medv_test <- Boston_dep[-train]
+bost_train <- cbind(bost_train,medv_train)
+bost_test <- cbind(bost_test,medv_test)
+bost_train <- data.frame(bost_train)
+bost_test <- data.frame(bost_test)
+mod_fit <- lm(medv_train~.,bost_train)
+summary(mod_fit)
+mod_pre <- predict(mod_fit,bost_test)
+sqrt(mean((medv_test- mod_pre)^2))
+```
+
+This model has 70% of the total variance explained in medv based on 6 PCA. Residual error on train is 5.014.
+Residual error on test data is `r sqrt(mean((medv_test- mod_pre)^2))`

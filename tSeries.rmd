@@ -1,0 +1,152 @@
+---
+title: "Time Series Analysis"
+output: 
+  html_document: 
+    highlight: pygments
+    number_sections: yes
+    theme: journal
+    toc: yes
+    toc_float: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Time Series Introduction :  
+
+**Time Series** - Series of data/observations over a period of time is time series.  
+**Stationary** - A time series is stationary if  
+  1. Mean - Same(almost same) over period of time. peaks/throughs have same height from time axis.  
+  2. Variance - Variance is same over period of time.Peaks/throughs height don't increase/decrease over period of time.  
+  3. Co-variance - Covariance is constant over period of time. Distance of peaks/throughs don't change over period of time.
+
+Models can be built only on stationary time series. If a time series is not stationary, that need to be converted to stationary before models are built.  
+
+
+
+# Data load.  
+
+Time series data available [here](https://datamarket.com/data/list/?q=provider:tsdl).  
+Monthly milk production data by month from 1962 Jan till 1976 December is provided.  
+
+
+```{r readdata}
+mpData <- read.csv('.//Data//monthly-milk-production-pounds-p.csv',sep=',',skip=1,header=F)
+colnames(mpData) <- c('month','milkProduction')
+mptSeries <- ts(mpData[,2],start = c(1962,1),frequency = 12 )
+plot.ts(mptSeries)
+start(mptSeries)
+end(mptSeries)
+cycle(mptSeries)
+frequency(mptSeries)
+boxplot(mptSeries~cycle(mptSeries))
+```  
+
+# Simple forecasting methods.  
+
+These are the simple forecasting methods which can be used as benchmarks. Few times these are better than more complex forecasting models.  
+
+1. Simple mean - Simple mean of observed values is projected as the forecast.  *meanf()*.  
+2. Naive method - Last observed value is forecasted. *naive()*.  
+3. Seasonal naive method - Last obesrved seasonal value is forecasted. *snaive()*.  
+4. drift method - Forecast to increase or decrease over period of time. Frist and last observation are joined and extrapolated into future.  
+
+
+```{r simpleForecast}
+require(forecast)
+mptSeries1 <- window(mptSeries,end=1974)
+fMean <- meanf(mptSeries1,h=12)
+fNaive <- naive(mptSeries1,h=12)
+fSnsNaive <- snaive(mptSeries1,h=12)
+fDrift <- rwf(mptSeries1,h=12,drift = TRUE)
+plot(fMean,main='Milk production monthly forecast',xlab = 'Year',ylab='Milk production in pounds' )
+lines(fNaive$mean,col=2)
+lines(fSnsNaive$mean,col=3)
+lines(fDrift$mean,col=7)
+legend('topleft',lty = 1,col=c(4,2,3,7),legend=c('Mean','naive','seasonal naive','drift'))
+accuracy(fMean,mptSeries)
+accuracy(fNaive,mptSeries)
+accuracy(fSnsNaive,mptSeries)
+accuracy(fDrift,mptSeries)
+
+```
+
+  
+
+# Transformations.  
+Historical data is transformed to simplify data and remove known sources of variation. This typically leads to better forecast.  
+There are 4 types of transformations. 
+  
+  
+## Mathematical: 
+Log, power transformation or boxcox family of changes.
+BoxCox family transformation if lambda is 0 then natural log is used as transformation function. If lambda is other than 0 then $(y_t^\lambda-1)/\lambda$.  
+
+Best lambda for the seriese is chosen to make all seasonal changes same accross the time series.
+
+```{r methAdjustments}
+plot(mptSeries)
+lambda <- BoxCox.lambda(mptSeries)
+mptSeries_adju <- BoxCox(mptSeries,lambda)
+plot(mptSeries_adju)
+mptSeries_adju_rev <- (1+lambda*mptSeries_adju)^(1/lambda)
+plot(mptSeries_adju_rev)
+```
+  
+
+##calendar adjustments.  
+
+Milk production per month is the data set under analysis. Sice number of days per month varies, production also varies. Easy way to transform the data is to divide monthly production number by number of days to gather per day average production each month over course of time frame. As visible from the chart, the graph is much smoother.
+
+```{r calAdjustments}
+monthDays = rep(c(31,28,31,30,31,30,31,31,30,31,30,31),14)
+monthDays[26+4*12*(0:2)] <-29 # every 4 year leap unless it is century
+plot(mptSeries/monthDays,xlab='year',ylab='Milk production in pounds',main='Milk production average per day')
+
+```  
+
+## Population adjustments.  
+If the data variation is due to variation in underlying population, it is good idea to change the data per person,per thousand people or per million people. For  e.g. if the  analysis is on number of hospital beds in a region over period of time, it may be good to check hospital beds per unit of population.  
+
+## Inflation adjustments.  
+Data influenced by value of money, it is best to adjust the data by inflation number.
+
+# Decomposition. 
+
+TimeSeries may have following component.  
+-Trend: Trend is the long term direction of the timeseries.  
+-Seasonal: Seasonal up/down fluctions in the time series. Ususally these repeat every year.  
+-Random: Random or the whilte noise which remains after taking out trend and seasonal components from the time series. This is also the stationary part of the time series.  
+
+*decompose()* method can be used to decompose the time series components.
+
+```{r decompose}
+
+mpt_decom_tSeries <- decompose(mptSeries)
+mpt_decom_tSeries$type
+plot.ts(mpt_decom_tSeries$seasonal)
+plot.ts(mpt_decom_tSeries$trend)
+plot.ts(mpt_decom_tSeries$random)
+plot.ts(mpt_decom_tSeries$figure)
+plot.ts(mpt_decom_tSeries$x)
+plot(mpt_decom_tSeries)
+#seasonally adjusted time series
+plot.ts(mptSeries-mpt_decom_tSeries$seasonal)
+#trend adjusted time series
+plot.ts(mptSeries-mpt_decom_tSeries$trend)
+#random adjusted time series
+plot.ts(mptSeries-mpt_decom_tSeries$random)
+```
+
+```{r stationaryTest}
+require(tseries)
+require(urca)
+adf.test(mptSeries,alternative = 'stationary',k=0)
+adf.test(mptSeries,alternative = 'explosive', k=0)
+summary(ur.df(mptSeries,type='none',selectlags = 'AIC'))
+summary(ur.df(mptSeries,type='drift',selectlags = 'AIC'))
+summary(ur.df(mptSeries,type='trend',selectlags = 'AIC'))
+acf(mptSeries)
+pacf(mptSeries)
+acf(diff(diff(mptSeries)))
+```

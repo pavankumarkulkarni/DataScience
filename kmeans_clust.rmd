@@ -1,0 +1,322 @@
+---
+title: "K-Means Clustering"
+output: 
+  html_document: 
+    highlight: pygments
+    number_sections: yes
+    theme: cerulean
+    toc: yes
+    toc_float: yes
+---
+# Clustering Introduction :  
+  Clustering is a type of unsupervised method as there is no dependent variable. In this class of methods the objective is to subgroup the observations (or alternatively features) bases on features such that observations within a group are more like each other and more unlike observations from other groups. 'Like each other' depends heavily on the domain of the problem. In terms of mathematics/statistics, these may depend on distance among observations or density or some other parameter.  
+  
+## Types of Clusters :  
+  **1. Hard cluster :** Observations either belong to a cluster or other. They have to belong to one and only one group.  
+  **2. Soft Cluster :** Obervations can belong to more than 1 group with some probability.  
+    
+## Cluster Algorithms:  
+  **1. Connectivity based :** Observations are clustered based on the distance of each other. Closed observations cluster together. Clusters form at different distances. It does not create unique clustering. Depending on the distance chosen, number of clusters varies. So this creates hierarchical clustering. It can be represented by dendograms.  
+  **2. Centroid based : **Here the centoids or central vector for predefined cluster are defined. Observations  are clustered together based on distance to these selected number of centroids. K-Means clustering is an example.  
+  **3. Density based : **Clusters are based on high density of observations in data space. Observations in sparse  density data space are treated as noise or border observations.  
+  **4. Distribution based : **Clustering is based on how probable the data belongs to a specific distribution. Data points in a cluster belongs to a specific distributions.  
+  
+# Kmeans algortithm.  
+1. We need to provide number of clusters to the algorithm in advance.  
+2. It randomly assigns 1-k clusters to each of the observations.  
+3. For each cluster calculate the centroid.  
+4. Reassign observations to clusters based on euclidian distance.  
+5. Perform this until no reassignment occurs.
+6. Input data needs to be all numerical either in matrix/data.frame class.  
+
+# Apply Kmeans to few datasets:  
+
+
+## Wholesale Customer data.  
+
+**Objective - To find if there are groups of customers for better advertising**
+The data is available at [UCI Website](https://archive.ics.uci.edu/ml/datasets/Wholesale+customers).  
+Attribute Information:  
+1) FRESH: annual spending (m.u.) on fresh products (Continuous).  
+2) MILK: annual spending (m.u.) on milk products (Continuous);  
+3) GROCERY: annual spending (m.u.)on grocery products (Continuous);  
+4) FROZEN: annual spending (m.u.)on frozen products (Continuous).  
+5) DETERGENTS_PAPER: annual spending (m.u.) on detergents and paper products (Continuous)  
+6) DELICATESSEN: annual spending (m.u.)on and delicatessen products (Continuous);  
+7) CHANNEL: customersâ€™ Channel - Horeca (Hotel/Restaurant/CafÃ©) or Retail channel (Nominal)  
+8) REGION: customersâ€™ Region â€“ Lisnon, Oporto or Other (Nominal)  
+
+### Load data.
+```{r Data_load, warning=FALSE,cache=TRUE}
+data_raw <- read.csv('.\\Data\\Wholesale customers data.csv', header = TRUE)
+head(data_raw,3)
+# channel and region should be factorvariables as per attribute descriptions. They must be coded to numbers. convert these 2.
+data_raw$Channel <- as.factor(data_raw$Channel)
+data_raw$Region <- as.factor(data_raw$Region)
+data_raw$idx <- as.numeric(row.names(data_raw))
+summary(data_raw)
+```
+1. There are no missing values.  
+2. Each of the categories have huge differences from quertiles to min and max values. So there may be outliers in the data.  
+3. Let's explore this by box plots.  
+4. Let's explore if there is any relationships between categories using pair scatter plots.  
+5. For sake of ease, create new data set excluding channnel and region.  
+
+### Visual inspection of data
+
+```{r visual_analysis, cache=TRUE, warning=FALSE, fig.height=10,fig.width=12}
+data_num <- data_raw[,-c(1,2,9)]
+library(GGally)
+library(ggplot2)
+ggpairs(data_num, title = 'Wholesale - Pairwise scatter plots.', diag = list(continuous = wrap('barDiag',binwidth=600)))
+#data_sort <- data_raw[order(data_raw$Fresh,data_raw$Milk,data_raw$Grocery,data_raw$Frozen,data_raw$Detergents_Paper,data_raw$Delicassen),]
+data_sort <- data_raw[order(data_raw$Fresh+data_raw$Milk+data_raw$Grocery+data_raw$Frozen+data_raw$Detergents_Paper+data_raw$Delicassen),]
+data_sort$sort_idx <- seq(1:nrow(data_raw))
+
+ggplot(data=data_sort) +
+  geom_point(aes(x=sort_idx,y=Milk),color='red') +
+  geom_smooth(aes(x=sort_idx,y=Milk),color = 'red') +
+  geom_point(aes(x=sort_idx,y=Fresh),color='blue') +
+  geom_smooth(aes(x=sort_idx,y=Fresh),color='blue') +
+  geom_point(aes(x=sort_idx,y=Grocery),color='black') +
+  geom_smooth(aes(x=sort_idx,y=Grocery),color='black') +
+  geom_point(aes(x=sort_idx,y=Frozen),color="green") +
+  geom_smooth(aes(x=sort_idx,y=Frozen),color="green") +
+  geom_point(aes(x=sort_idx,y=Detergents_Paper),color="purple") +
+  geom_smooth(aes(x=sort_idx,y=Detergents_Paper),color="purple") +
+  geom_point(aes(x=sort_idx,y=Delicassen),color="yellow") +
+  geom_smooth(aes(x=sort_idx,y=Delicassen),color="yellow") +
+  labs(title = 'Relative spending', x =  'Customer', y = 'MU spent')
+```
+1. Grocery, detergent paper and milk have very strong correlations. Let's see how (and if) this influences the clusters.  
+2. There are some customers with big spending in each category which may be outliers. In the first go, let's cluster without removing these outliers. Then in second iteration lets remove these outlier elements and run the algorithm.  
+3. Relative graph is the plot of relative spending by category sorted by total money unit spent. This shows customers who spend more on one category tends to spend more on all other categories perticularly on top end.
+
+
+
+### Kmeans algorithm
+```{r Algo_run, warning=FALSE, cache=TRUE}
+# Lets choose 5 clusters to begin with.
+library(factoextra)
+set.seed(101)
+kmod_5cl <- kmeans(data_num,5,iter.max = 20, nstart=1)
+kmod_5cl$centers # centoirds of 5 clusters for each of the category.
+kmod_5cl$size # number of observations assigned to each cluster.
+data_raw$cluster <- kmod_5cl$cluster
+kmod_5cl$totss
+kmod_5cl$tot.withinss
+kmod_5cl$betweenss
+fviz_cluster(kmod_5cl,data=data_num)
+```
+*Cluster inference:*  
+Cluster 1 : only 10 customers grouped. Looking at centers, all categories have highest. Even though not highest in fresh category it is in top section. So this is highest spenders cluster. 'Top' cluster.  
+Cluster 2 : It has most number of customers ~50%. Centers are right around means of each category. 'Average' cluster.  
+Cluster 3 : Cluster 3 is also around average MU spent except heavy on 'Fresh' category.  
+Cluster 4 : Another small sized cluster heavy on Fresh, Frozen and delicassen.  
+Cluster 5 : Heavy on Milk, grocery and detergent categories.  
+
+$*Other parameters of the model*$  
+kmod_5cl$cluster -> clusters assigned to each of the observations.  
+kmod_5cl$totss -> Total sum of squares. :: smaller better  
+kmod_5cl$withinss -> sum of squares within each clusters. :: smaller is better  
+kmod_5cl$betweenss -> sum of squares between clusters. :: larger the better  
+kmod_5cl$iter -> 3 iterations fixed the assignment.  
+kmod_5cl$ifault -> any problem with algorithm.  
+
+### Plot kmeans algorithm results.  
+Desired parameters of the good cluster is, observations within a cluster are tighly placed while each clusters are far from other clusters.
+```{r plot_kmeans, warning=TRUE, cache=FALSE}
+library(ggplot2)
+attach(data_num)
+bet_ss <- vector()
+avg_withinss <- vector()
+for(i in 1:20){
+  mod_fit <- kmeans(data_num,i,iter.max = 100, nstart=1)
+  avg_withinss[i] <- mean(mod_fit$withinss)
+  bet_ss[i] <- mod_fit$betweenss
+}
+mod_com <- cbind(bet_ss,avg_withinss)
+mod_com <- cbind(seq(1:20),mod_com)
+mod_com <- data.frame(mod_com)
+colnames(mod_com) <- c('K_count', 'Bet_SS', 'AVG_withinss')
+p1 <- ggplot(mod_com) +
+  geom_line(aes(x=K_count, y= Bet_SS)) +
+  scale_x_continuous(breaks = c(seq(1,20,1)))
+p1
+p2 <- ggplot(mod_com) +
+  geom_line(aes(x=K_count, y= AVG_withinss))+
+  scale_x_continuous(breaks = c(seq(1,20,1)))
+p2
+
+```
+  
+  Around k=5 both the graphs tend to plateu. So k=5 seems to be good choice.  
+
+### Try the kmeans algorithm after removing outliers  
+
+```{r rm_outliers, cache=TRUE, warnings=FALSE}
+id_rm <- vector()
+id_rm <- union(id_rm,head(order(data_raw$Fresh,decreasing = T),nrow(data_raw)*0.02))
+id_rm <- union(id_rm,head(order(data_raw$Milk,decreasing = T),nrow(data_raw)*0.02))
+id_rm <- union(id_rm,head(order(data_raw$Grocery,decreasing = T),nrow(data_raw)*0.02))
+id_rm <- union(id_rm,head(order(data_raw$Frozen,decreasing = T),nrow(data_raw)*0.02))
+id_rm <- union(id_rm,head(order(data_raw$Detergents_Paper,decreasing = T),nrow(data_raw)*0.02))
+id_rm <- union(id_rm,head(order(data_raw$Delicassen,decreasing = T),nrow(data_raw)*0.02))
+id_rm
+data_rm <- data_raw[-id_rm,]
+summary(data_rm)
+```
+### plot the data after removing outliers
+```{r otl_rm, cache=TRUE,warning=FALSE}
+data_sort_rm <- data_rm[order(data_rm$Fresh+data_rm$Milk+data_rm$Grocery+data_rm$Frozen+data_rm$Detergents_Paper+data_rm$Delicassen),]
+data_sort_rm$sort_idx <- seq(1:nrow(data_rm))
+
+ggplot(data=data_sort_rm) +
+  geom_point(aes(x=sort_idx,y=Milk),color='red') +
+  geom_smooth(aes(x=sort_idx,y=Milk),color = 'red') +
+  geom_point(aes(x=sort_idx,y=Fresh),color='blue') +
+  geom_smooth(aes(x=sort_idx,y=Fresh),color='blue') +
+  geom_point(aes(x=sort_idx,y=Grocery),color='black') +
+  geom_smooth(aes(x=sort_idx,y=Grocery),color='black') +
+  geom_point(aes(x=sort_idx,y=Frozen),color="green") +
+  geom_smooth(aes(x=sort_idx,y=Frozen),color="green") +
+  geom_point(aes(x=sort_idx,y=Detergents_Paper),color="purple") +
+  geom_smooth(aes(x=sort_idx,y=Detergents_Paper),color="purple") +
+  geom_point(aes(x=sort_idx,y=Delicassen),color="yellow") +
+  geom_smooth(aes(x=sort_idx,y=Delicassen),color="yellow") +
+  labs(title = 'Relative spending', x =  'Customer', y = 'MU spent')
+
+```  
+  
+  
+Data seems much closer now. !!!
+
+### Kmeans algorithm on this data
+```{r Algo_run_rm, warning=FALSE, cache=TRUE}
+# Lets choose 5 clusters to begin with.
+set.seed(101)
+library(ggplot2)
+library(factoextra)
+data_num <- data_rm[,-c(1,2,9)]
+kmod_5cl <- kmeans(data_num[,c(1,2,3,4,5)],5,iter.max = 20, nstart=25)
+kmod_5cl$centers # centoirds of 5 clusters for each of the category.
+kmod_5cl$size # number of observations assigned to each cluster.
+data_rm$cluster <- kmod_5cl$cluster
+fviz_cluster(kmod_5cl,data=data_num)
+
+kmod_4cl <- kmeans(data_num[,c(1,2,3,4,5)],4,iter.max = 20, nstart=25)
+kmod_4cl$centers # centoirds of 5 clusters for each of the category.
+kmod_4cl$size # number of observations assigned to each cluster.
+data_rm$cluster <- kmod_4cl$cluster
+fviz_cluster(kmod_4cl,data=data_num)
+fviz_nbclust(data_num[,c(1,2,3,4,5)],kmeans, method = 'wss')
+fviz_nbclust(data_num[,c(1,2,3,4,5)],kmeans, method = 'silhouette')
+
+``` 
+### Plot kmeans algorithm results.  
+Desired parameters of the good cluster is, observations within a cluster are tighly placed while each clusters are far from other clusters.
+```{r plot_kmeans_rm, warning=TRUE, cache=FALSE}
+library(ggplot2)
+attach(data_num)
+bet_ss <- vector()
+avg_withinss <- vector()
+for(i in 1:20){
+  mod_fit <- kmeans(data_num,i,iter.max = 100, nstart=1)
+  avg_withinss[i] <- mean(mod_fit$withinss)
+  bet_ss[i] <- mod_fit$betweenss
+}
+mod_com <- cbind(bet_ss,avg_withinss)
+mod_com <- cbind(seq(1:20),mod_com)
+mod_com <- data.frame(mod_com)
+colnames(mod_com) <- c('K_count', 'Bet_SS', 'AVG_withinss')
+p1 <- ggplot(mod_com) +
+  geom_line(aes(x=K_count, y= Bet_SS)) +
+  scale_x_continuous(breaks = c(seq(1,20,1)))
+p1
+p2 <- ggplot(mod_com) +
+  geom_line(aes(x=K_count, y= AVG_withinss))+
+  scale_x_continuous(breaks = c(seq(1,20,1)))
+p2
+
+```
+
+
+    
+    
+
+## IRIS Dataset:  
+
+This is the inbuilt dataset. This famous (Fisher's or Anderson's) iris data set gives the measurements in centimeters of the variables sepal length and width and petal length and width, respectively, for 50 flowers from each of 3 species of iris. The species are Iris setosa, versicolor, and virginica.  
+
+### Load data
+```{r Load_iris, warning=FALSE}
+attach(iris)
+summary(iris) 
+# No missing data. All 4 variable numerical and Species as categorical.
+# For the sake of performing KMeans clustering, Let's take length and width in one data set and later compare the results with Species.
+iris_data <- iris[,c(1,2,3,4)]
+iris_spc_observed <- iris[,5]
+```
+  
+Once the data is loaded, lets perform some exploratory data analysis.  
+
+### Exploratory data Analysis.  
+
+```{r iris_EDA,warning=FALSE}
+library(GGally)
+ggpairs(iris_data, title='EDA IRIS data')
+```
+  
+  1. Petal length and width are highly correlated.  
+  2. Petal length and sepal length are also highly correlated.
+  3. Interestingly sepal length and sepal width have vey weak correlation.
+  4. Charts show clear grouping of data.  
+  
+### KMeans: Cluster selection  
+
+  
+```{r IRIS_Kmeans, warning = TRUE}
+library(factoextra)
+library(ggplot2)
+library(cluster)
+fviz_nbclust(iris_data,kmeans,method='wss')
+fviz_nbclust(iris_data,kmeans, method = 'silhouette')
+g_s <- clusGap(iris_data,kmeans, K.max=25, nstart = 25)
+fviz_gap_stat(g_s)
+```  
+  
+- Optimal number of clusters (WSS): Within sum of squares decrease a great extent till 3 clusters. After 5 it almost plateus.  
+- Optimal number of clusters (silhouette): 2 is best. After 5 it reduces.  
+- Optimal number of clusters (gapstatistic) - 6 is the best count. 4,5 and 6 are in the same range.
+
+Looking at all 3 charts above, reasonable cluster size seems to be 3,4 and 5. Now lets run the algo with all 3 cluster sizes.  
+
+### KMeans - Measure performance.  
+The dataset does have the observed species.There are 3 distinct categories. Lets' see how these Kmeans classifications perform with observed species.  
+
+```{r Kmeans_perfo, warning=FALSE}
+k3 <- kmeans(iris_data,3,iter.max = 25,nstart=25)
+k4 <- kmeans(iris_data,4,iter.max = 25,nstart=25)
+k5 <- kmeans(iris_data,5,iter.max = 25,nstart=25)
+table(k3$cluster,iris_spc_observed)
+table(k4$cluster,iris_spc_observed)
+table(k5$cluster,iris_spc_observed)
+```    
+
+  
+- K3 : Error rate for k3 is `r (2+14)/150*100` %  
+- K4 : Setosa (cl-1) perfect. cl-2 is almost versicolor, cl-3 all virginica, cl-4 combination of versicolor and virginica.  
+- K5 : Setosa perfect classification. Versicolor is split into 4 and 5. virginica is split in cl2,3 and 5.  
+
+### Kmeans with different cluster sizes.  
+```{r iris_kmeans_plt, warning=TRUE}
+set.seed(143)
+
+fviz_cluster(k3,data=iris_data)
+
+
+fviz_cluster(k4, data=iris_data)
+
+
+fviz_cluster(k5, data=iris_data)
+```

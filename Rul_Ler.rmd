@@ -1,0 +1,185 @@
+---
+title: "Rule Learner - Classification"
+output: 
+  html_document: 
+    highlight: pygments
+    theme: journal
+    toc: yes
+    toc_float: yes
+---
+
+
+# Introduction:  
+
+  * Rule learner algorithms generate if-else like rules to classify data based on feature values.  
+  * Similar to *Decision Trees* this class of algorithms are also greedy - meaning they process the data first seen.  
+  * The output is relatively easy to understand without statistical backgorund.  
+  * *Decision Trees* divide and conquer while these seperate and conquer.  
+  * Rule learners are computationally expensive compared to *Decision Trees*.  
+  * Rule generators work best where features are factors.  
+  * Similar to *Decision Trees* these also classify output based on feature values to increase homogeneity.  
+
+# Application on 'Poison Mushroom' dataset.  
+Below details copied from thw UCI website.  
+Attribute Information: (classes: edible=e, poisonous=p)  
+1.cap-shape:bell=b,conical=c,convex=x,flat=f,knobbed=k,sunken=s
+2.cap-surface:fibrous=f,grooves=g,scaly=y,smooth=s
+3.cap-color:brown=n,buff=b,cinnamon=c,gray=g,green=r,pink=p,purple=u,red=e,white=w,yellow=y
+4.bruises?:bruises=t,no=f
+5.odor:almond=a,anise=l,creosote=c,fishy=y,foul=f,musty=m,none=n,pungent=p,spicy=s
+6.gill-attachment:attached=a,descending=d,free=f,notched=n
+7.gill-spacing:close=c,crowded=w,distant=d
+8.gill-size:broad=b,narrow=n
+9.gill-color:black=k,brown=n,buff=b,chocolate=h,gray=g,green=r,orange=o,pink=p,purple=u,red=e,white=w,yellow=y  
+10.stalk-shape:enlarging=e,tapering=t
+11.stalk-root:bulbous=b,club=c,cup=u,equal=e,rhizomorphs=z,rooted=r,missing=?
+12.stalk-surface-above-ring:fibrous=f,scaly=y,silky=k,smooth=s
+13.stalk-surface-below-ring:fibrous=f,scaly=y,silky=k,smooth=s
+14.stalk-color-above-ring:brown=n,buff=b,cinnamon=c,gray=g,orange=o,pink=p,red=e,white=w,yellow=y  
+15.stalk-color-below-ring:brown=n,buff=b,cinnamon=c,gray=g,orange=o,pink=p,red=e,white=w,yellow=y  
+16.veil-type:partial=p,universal=u
+17.veil-color:brown=n,orange=o,white=w,yellow=y
+18.ring-number:none=n,one=o,two=t
+19.ring-type:cobwebby=c,evanescent=e,flaring=f,large=l,none=n,pendant=p,sheathing=s,zone=z  
+20.spore-print-color:black=k,brown=n,buff=b,chocolate=h,green=r,orange=o,purple=u,white=w,yellow=y  
+21.population:abundant=a,clustered=c,numerous=n, scattered=s,several=v,solitary=y  
+22.habitat:grasses=g,leaves=l,meadows=m,paths=p,urban=u,waste=w,woods=d  
+
+## Data Load:  
+
+Read data and rename columns.
+
+```{r RL_mus_load,  cache=T, warning=T}
+df_raw <- read.csv('.//Data//agaricus-lepiota_data.csv',header = F, sep = ",")
+colnames(df_raw) <- c('edi_psn',
+'cap_shape',
+'cap_surface',
+'cap_color',
+'bruises',
+'odor',
+'gill_attachment',
+'gill_spacing',
+'gill_size',
+'gill_color',
+'stalk_shape',
+'stalk_root',
+'stalk_surface_above_r',
+'stalk_surface_below_r',
+'stalk_color_above_rin',
+'stalk_color_below_rin',
+'veil_type',
+'veil_color',
+'ring_number',
+'ring_type',
+'spore_print_color',
+'population',
+'habitat'
+)
+dim(df_raw)
+summary(df_raw)
+df_raw <- subset(df_raw,select = c(colnames(df_raw)!='veil_type')) # this column has only 1 value so no infomation
+dim(df_raw)
+```
+## Missing value  
+
+Missing values are represented by '?'.  
+
+```{r rl_mus_miss, cache=T, warning=T}
+require(ggplot2)
+require(gridExtra)
+p1 <- ggplot(data=df_raw,aes(x=df_raw$stalk_root)) +
+  geom_bar(stat='count',aes(fill=df_raw$edi_psn),position = 'dodge',width=0.6) +
+  xlab('Stalk-root') +
+  ylab('Mushroom-count') +
+  ggtitle('Missing Values') +
+  theme_grey()
+
+p2 <- ggplot(data=df_raw,aes(x=df_raw$edi_psn)) +
+  geom_bar(stat='count',aes(fill=df_raw$stalk_root),position = 'dodge',width=0.6) +
+  xlab('Edible/Poison') +
+  ylab('Mushroom-count') +
+  ggtitle('Missing Values') +
+  theme_grey()
+
+grid.arrange(p1,p2,ncol=1)
+```
+  
+- More than 25% of stalk-root are missing.  
+- off these missing values 1/3 are edible and 2/3 are poisonous.  
+- Other values of this variable have differing proportions edible/poisonous. 
+
+Let's run the rule learner as is. If the rules include these '?' missing values let's think of imputing in correct way.  
+
+## Rule Learner.  
+
+```{r rl_mus_rulearn, cache=T,warning=T}
+require(RWeka)
+rl_mod <- JRip(edi_psn~.,data=df_raw) # RIPPER algorthm  implemented
+summary(rl_mod)
+rl_mod
+```  
+
+- These 9 rules correctly identifies all mushromms from the dataset.  
+- They don't include 'Stalk-Root' variable which means the variable is not significant.
+- No need to impute missing values.  
+
+## Pair plot of variables included in 9 rules. 
+
+All the rules have atmost 2 variables. So below set of pair graphs can be used as visual tool to cross verify the rules validity.  
+
+```{r,fig.width=12,fig.height=20}
+require(GGally)
+require(ggplot2)
+ggpairs(data=df_raw[,c('edi_psn',
+'odor',
+'gill_size',
+'gill_color',
+'spore_print_color',
+'stalk_surface_below_r',
+'stalk_surface_above_r',
+'habitat',
+'cap_color',
+'stalk_color_above_rin')],
+aes(colour=edi_psn),
+columns=2:10,
+title='Variable included in 9 rules')
+```
+
+## Rerun the JRip  
+
+Some columns referred in the previous run. Cross check the output after running only these columns selected.
+
+```{r rl_rerun, cache=T, warning=T}
+df_spe <- df_raw[,c('edi_psn',
+'odor',
+'gill_size',
+'gill_color',
+'spore_print_color',
+'stalk_surface_below_r',
+'stalk_surface_above_r',
+'habitat',
+'cap_color',
+'stalk_color_above_rin')]
+rs_mod2 <- JRip(edi_psn~.,data=df_spe)
+summary(rs_mod2)
+rs_mod2
+```
+
+  
+These 2 out puts exactly match and classify all mushrooms correctly.  
+
+## Predict.  
+
+Standard 90/10 train,  test split to verify the performance of JRip rule learner algorithm in predicting the correct category of mushrooms.  
+
+```{r rl_pred, cache=T,warning=T}
+set.seed(20181204)
+trainIndex <- sample(seq(1:nrow(df_raw)),nrow(df_raw)*0.9)
+df_train <- df_raw[trainIndex,]
+df_test <- df_raw[-trainIndex,]
+mod_p1 <- JRip(edi_psn~.,data=df_train)
+prd1 <- predict(mod_p1,df_test, type='class')
+table(df_test$edi_psn,prd1)
+```
+
+It correctly predicted all edible and poison mushrooms.!!!

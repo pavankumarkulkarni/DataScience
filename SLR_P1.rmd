@@ -1,0 +1,174 @@
+---
+title: "Simple Linear Regression"
+output: 
+  html_document: 
+    df_print: kable
+    highlight: pygments
+    theme: cerulean
+    toc: yes
+    code_folding: hide
+    toc_float:
+      collapsed : false
+      smooth_scroll: false
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## SLM on power plant data
+
+Perform simple linear regression on power plant data available on UCI website https://archive.ics.uci.edu/ml/datasets/Combined+Cycle+Power+Plant
+
+* Attribute Information as given in the source:
+  Features consist of hourly average ambient variables 
+  + Temperature (T) in the range 1.81?C and 37.11?C,
+  + Ambient Pressure (AP) in the range 992.89-1033.30 milibar,
+  + Relative Humidity (RH) in the range 25.56% to 100.16%
+  + Exhaust Vacuum (V) in the range 25.36-81.56 cm Hg
+  + Net hourly electrical energy output (EP) 420.26-495.76 MW
+The averages are taken from various sensors located around the plant that record the ambient variables every second. The variables are given without normalization. 
+
+Problem:  
+
+1. Fit a model capturing the relation of  PE with remaining 4 independent variables.  
+2. Explain the relationship and measure model accuracy.  
+3. Use model for prediction of  PE based on other 4 variables.  
+
+ - First step is to perform EDA - Exploratory Data Analysis.
+ - The objective of this step is to get well versed with the data(understand the data)
+ - Run simple statistics and suitable graphs for visual aid of understanding data.
+ - This should lead to choosing models suitable for data under analysis.
+
+### EDA Step 1 : Read data.
+
+The data is in XLSX format. Need library 'xlsx' to read.
+
+```{r cache=TRUE,warning=FALSE}
+library(DT)
+getwd()
+list.files()
+library(xlsx)
+po_dt_raw <- read.xlsx('./Data/Folds5x2_pp.xlsx',1) # header is true by default. our data does have header
+class(po_dt_raw)  # data is loaded into data.frame object
+dim(po_dt_raw) # it has 9,568 rows and 5 columns
+#head(po_dt_raw) # get first few rows of the data
+datatable(po_dt_raw,rownames=FALSE, filter='none') # better option with data table to display the data.
+```
+
+### EDA Step 2 :check few summary functions.
+  1. Summary - to check summary of the data.
+  2. str to check the internal structure.
+  
+```{r cache=TRUE,warning=FALSE}
+summary(po_dt_raw) #there are no na or missing numbers which makes it bit easier to fit the model
+str(po_dt_raw) # all 5 columns are numbers
+```
+### EDA Step 3 :visually analyse the data with graphs.
+  As all the variables are numerical and there are only 5 in total, pairwise scatter is best option to inspect the data in concise fashion.
+  My choice of package for plotting is ggplott. However it does not have built in pairwise scatter plot. so first lets try with building them.
+```{r cache=TRUE,warning=FALSE}
+library(ggplot2)
+library(gridExtra) # to plot multiple plots on same screen
+g1 <- ggplot() +
+        geom_point(aes(x=po_dt_raw$PE,y=po_dt_raw$AT))
+g2 <- ggplot() +
+        geom_point(aes(x=po_dt_raw$PE,y=po_dt_raw$V))
+g3 <- ggplot() +
+        geom_point(aes(x=po_dt_raw$PE,y=po_dt_raw$AP))
+g4 <- ggplot() +
+        geom_point(aes(x=po_dt_raw$PE,y=po_dt_raw$RH))
+g5 <- ggplot() +
+        geom_point(aes(x=po_dt_raw$PE,y=po_dt_raw$PE))
+
+grid.arrange(g1,g2,g3,g4,g5,ncol=5)
+
+```
+
+### better options of plotting
+  the plots do convey good information for e.g there seems to be strong negative linear correlation between PE and AT
+  However the plotting function is basic for the purpose, though there are multiple customization options to modify the aspect ratio and title to make them more readable, still they are cumbersome to create potentially 25 (5*5) pairwise scatter plots. GGALLY package comes to the rescue !!!!
+  
+```{r cache=TRUE,warning=FALSE}
+library(GGally)
+ggpairs(po_dt_raw,title = 'Pairwise scatter plots')
+```
+
+##
+Takeaways from the scatter plots.
+    1. Dependent variable PE has strong negative correlation with AT and negative correlation with V.
+    2. PE correlation with RH and AP are weak or not clear.
+    3. It is also important to note that V and AT has strong negative correlation (independent variables). So it may impact the model accuracy if this **multicollinearity** is not treated accordingly.
+  
+  PE seems to have linear with 2 of the independent variables and PE itself is continuous variable. Hence try simple linear regression
+  
+  ***
+
+### Model fitting - Step 1 Prepare Data  
+  One way to go about slm regression is to divide the data into training and test data usually in 80% and 20% ratio.
+  Training set is the part of data used for training the model. Test is the part used for testing the model.
+  
+```{r cache=TRUE,warning=FALSE}
+set.seed(101) # this step is needed only to get reproducible results.
+train <- sample(1:nrow(po_dt_raw),round(nrow(po_dt_raw)*0.8)) # randomly sample 80% of rows for training.
+po_dt_train <- po_dt_raw[train,] # 7654 of the records are used for training the data
+po_dt_test <- po_dt_raw[-train,] # remaining 1914 of the 7654 are used for testing the model.
+```
+  
+  
+  This works approach of splitting the data into train and test works well in cases where observations are much bigger than number of variables. Still the draw back is some data is not used for training the model, there are other approaches such as cross validation etc.
+  
+### Model fitting - Step 2 
+```{r cache=TRUE,warning=FALSE}
+library(MASS) # lm model is on mass
+library(car) # VIF function
+lm_model <- lm(PE~.,data=po_dt_train)
+summary(lm_model)
+```
+## SLM regression inference
+* Coefficients can be used to write down the model
+  + $PE = 447 + (-1.977)*AT + (-0.233)*V + (0.06)*AP + (-0.15)*RH$
+  + When all 4 independent variables are 0, PE predicted is 447. 
+  + Each of the corresponding co-efficient indicate projected change in PE per unit change in independent variable when all others are held constant. This is important as the underlying assumption is independent variable are all uncorrelated. Hence change in one variable keeping all other constant is possible scenario. As we observed at least 2 AT and V seems to have strong correlation. Need to adjust the model subsequently.
+* P values are all statistically significant *** meaning they do have correlation with dependent variable.
+* multiple R-squared adjusted is 0.9278 and is statistically significant - The model explains 92.7% of variance which is pretty good. Also it does not decrease from R-squared
+* residual standard error or RMSE is 4.575 . It  is the absolute fit of the model in dependent variable fit. Meaning predicted values on average differ observed values by 4.575 ... Again this is on training data.
+* Degrees of freedom is number of observations  minus number of variables.
+
+### Scrutanise model output -
+#### Multicollenearity
+In EDA we suspected collinearity. Pairwise scatter plot may not hint at multicollenearity. It detects collenearity. Best way is to use VIF.
+
+Variance inflation factor (VIF) is used for checking multicollinearity. Number greater than 4 is presence of multicollinearity. Multicollinearity pitfalls are
+* Regression coefficients of the variable depend on presence of other variables in the model.
+* Regression coefficients are less accurate.
+
+Solutions to deal with multicollenearity are
+* Get more data so multicollenearity does not exists !!!
+* Design experiments with no multicollenearity.
+* Remove parameters with multicollenearity.
+* Use **PCA** modelling.
+* Ignore depending on the objective of the model. Particularly if it is prediction. 
+
+AT has 5.9 VIF. Need to deal with it in next model.!!!!
+```{r cache=TRUE,warning=FALSE}
+vif(lm(PE~AT+V+AP+RH,data=po_dt_train))
+
+```
+
+#### Plots of the residuals for any problems with the model.
+
+
+  * Residuals vs fitted
+    The residuals should be normally distributed around 00 horizontal axis. Any patterns here indicates pattern in the data is not satisfied by the model. Linear model may not be sufficient.
+    - Does not seem to be problem here  
+  * sqrt(standardized error) vs fitted values
+  It should be normally distributed around horizontal axis.Any funnel pattern indicates either/all dependent and independent variables need to be transformed before fitting the model. e.g. log, squaring/sqrt etc.
+    - Does not seem to be problem here.
+  * Residual vs leverage-
+    - Any observations outside cook's distance indicate outliers in the data with huge influence on the model. These are outliers not following patterns of the majority still have  huge influence on the model. Best way to address is to remove such observations from the data before fitting the model.
+    - Does not seem to be any problem here.
+```{r cache=TRUE,warning=FALSE}
+plot(lm_model)
+```

@@ -1,0 +1,57 @@
+---
+title: "Multicollinearity"
+output: 
+  html_document: 
+    df_print: kable
+    highlight: pygments
+    theme: cerulean
+    toc: yes
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+---
+
+## Deal with multicollinearity
+
+* Option 1 - Redesign the experiment to observe non correlated variables. 
+* Option 2 - Gather more data.
+* Option 3 - Remove the parameter with high VIF.
+* Option 4 - Perform PCA (to be covered in future ...)
+
+Just to recap below is the multiple regression analysis.
+```{r}
+library(car)
+library(magrittr)
+summary(lm_model)
+vif(lm_model)
+```
+
+Remove AT parameter from the model.
+
+```{r}
+lm_mod_vf1 <- lm(PE~V+AP+RH, data = po_dt_train)
+summary(lm_mod_vf1)
+vif(lm_mod_vf1)
+```
+
+Though it removed collinearity, the Rsquared and adjusted r2 both dropped from 92% to 80%. Only 80% of the variance in PE is explained now. Not good trade off...
+
+Lets try removing V insted of AT from original model.
+
+```{r}
+lm_mod_vf2 <- lm(PE~AT+AP+RH, data=po_dt_train)
+summary(lm_mod_vf2)
+vif(lm_mod_vf2)
+```
+
+This is much better result. R2 is almost same as original model @ 92%. There is no collinearity.
+
+Now check the performance of this revised model with test data set.
+
+```{r cc_vif_2,}
+po_dt_test_vif2 <- po_dt_test[,c('AT','AP','RH')]
+pr_vif2 <- predict(lm_mod_vf2,po_dt_test_vif2)
+RMSE_v <- (pr_vif2-po_dt_test$PE)^2 %>% mean()%>%sqrt() # RMSE of test data
+RMSE_v
+```
+RMSE on test data is `r RMSE_v` which is same as original linear regression model.

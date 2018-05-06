@@ -1,0 +1,199 @@
+---
+title: "Naive Bayes"
+output: 
+  html_document: 
+    highlight: pygments
+    number_sections: yes
+    theme: journal
+    toc: yes
+    toc_float: yes
+---  
+
+# Introduction.  
+
+This is a classification algorithm based on *Bayes theorem*. It is based on joint probability theorem. It assumes independence amongst all feature variables. It is used mainly in text classification/processing problems. Works well when features are categorical type. These scale well. In case of numerical variables, it assumes normal distribution (bell curve).  
+
+    Posterior probability of class given predictor = ((likelihood/prior probability of predictor given class)*(prior probability of class))/(prior probability of predictor)  
+    
+**Tips:**  
+1. If categorical features have *null frequency* issue, use smoothing techniques to correct data such as *laplace correction*.  
+2. If numerical  variables does not have normal distribution, use some kind of transformation to on the data to get normal distribution.  
+3. Remove highly correlated features as they can inflate the importance.  
+
+# Application - Adult data set from UCI.  
+
+## Load data.  
+
+```{r prepoc, cache=T,warning=T}
+df_raw <- read.csv('.//Data//Adult_Income.csv', header=F,sep=',',na.strings = " ?")
+colnames(df_raw) <- c(
+  'age',
+'workclass',
+'fnlwgt',
+'education',
+'education_num',
+'marital_status',
+'occupation',
+'relationship',
+'race',
+'sex',
+'capital_gain',
+'capital_loss',
+'hours_per_week',
+'native_country',
+'Income_Class'
+)
+
+
+df_preprocessed <- df_raw
+str(df_preprocessed)
+summary(df_preprocessed)
+
+
+```
+
+## Clean up data collinearity and nzv columns.  
+
+
+They are perfectly linear related. We need to keep only one of the 2. Choosing education_num column.  
+
+```{r,cache=T,warning=T}
+# education is title and education number is number of years studied. They should be correlated. 
+# Lets inspect visually by plotting them
+
+require(ggplot2)
+ggplot(data=df_preprocessed) +
+  geom_point(aes(x=reorder(education, education_num), y= education_num)) +
+  coord_flip()
+df_preprocessed <- subset(df_preprocessed,select = -c(education))
+summary(df_preprocessed)
+# convert education_num to factor
+df_preprocessed$education_num <- as.factor(df_preprocessed$education_num)
+
+# Lets find out near variance zero columns
+require(caret)
+colnames(df_preprocessed[,nearZeroVar(df_preprocessed)])
+
+# Lets further inspect native_country
+ggplot(data=df_preprocessed) +
+  geom_bar(aes(x=native_country,fill=Income_Class)) +
+  coord_flip()
+table(df_preprocessed[df_preprocessed$native_country == ' United-States',]$Income_Class)
+```  
+
+`r 7171/(7171+21999)*100`% are >50K income in United-States.  
+
+```{r, cache=T, warning=T}
+ggplot(data=df_preprocessed[df_preprocessed$native_country != ' United-States',]) +
+  geom_bar(aes(x=native_country,fill=Income_Class)) +
+  coord_flip()
+table(df_preprocessed[df_preprocessed$native_country != ' United-States',]$Income_Class)
+```  
+
+For rest of the countries it becomes `r 524/(524+2284)*100`% as income >50K.  
+
+So lets group all other countries into 'Other' category. **Rationale** US and other countries have varying ratio of >50K income. so this category should influence final classification.
+
+```{r cache=T, warning=T}
+ df_preprocessed$native_country_grouped <-  ifelse(is.na(df_preprocessed$native_country),'Other_Countries',ifelse(df_preprocessed$native_country == ' United-States', 'United_States','Other_Countries'))
+
+# drop the native_country column
+df_preprocessed = subset(df_preprocessed,select=-c(native_country))
+df_preprocessed$native_country_grouped <- as.factor(df_preprocessed$native_country_grouped)
+summary(df_preprocessed)
+colnames(df_preprocessed[,c(nearZeroVar(df_preprocessed))])
+```
+
+Let's see how to deal with *capital_gain* and *capital_loss*.  
+```{r cache=T, warning=T}
+table(df_preprocessed[df_preprocessed$capital_gain != 0,]$Income_Class)
+table(df_preprocessed[df_preprocessed$capital_loss != 0,]$Income_Class)
+```
+
+If there is a non zero capital gain, odds of income >50K dramatically increases to `r 1677/(1677+1035)*100`%.  
+
+Interestingly if there is non zero capital loss (underscore loss) then also income >50K dramatically increases to `r 773/(773+746)*100`%. Explaination may be individuals with higher income typically invest in stock market and gain/loss is part of the game.  
+
+Also in an financial year individual can either have capital gain or loss not both.
+
+```{r, cache=T, warning=T}
+sum(df_preprocessed$capital_gain !=0 & df_preprocessed$capital_loss != 0)
+
+```
+
+Let's create a new variable *capital_gain_loss* a factor variable which indicates if there is any cpital gain/loss and drop these 2 columns.  
+
+```{r cache=T, warning=T}
+
+df_preprocessed$cap_gain_loss <-  ifelse((df_preprocessed$capital_gain + df_preprocessed$capital_loss) != 0 ,'yes','no')
+df_preprocessed$cap_gain_loss <- as.factor(df_preprocessed$cap_gain_loss)
+df_preprocessed <- subset(df_preprocessed,select=-c(capital_gain,capital_loss))
+summary(df_preprocessed)
+nearZeroVar(df_preprocessed) # all near zero variables are taken care
+# lets check remaining missing values
+sum(!complete.cases(df_preprocessed))
+sum(!complete.cases(df_preprocessed[,-c(2,6)]))
+```
+
+## Impute missing values.  
+
+Only *workclass* and *occupation* have missing values. let's impute the values using *K nearest neighbor* method. Well I tried but it is not what I wanted.  
+
+First reason is it won't work if more than a column in dataset have missing values (as per stackoverflow answer).  
+Second it automatically centers and scales which I don;t wnat. Missing values are in workclass and occupation. so mark them  'misc'
+
+```{r cache=T, warning=T}
+df_preprocessed$occupation <- as.character(df_preprocessed$occupation)
+df_preprocessed[is.na(df_preprocessed$occupation),6] <- 'Mis_occupation'
+df_preprocessed$occupation <- as.factor(df_preprocessed$occupation)
+
+df_preprocessed$workclass <- as.character(df_preprocessed$workclass)
+df_preprocessed[is.na(df_preprocessed$workclass),2] <- 'Mis_workclass'
+df_preprocessed$workclass <- as.factor(df_preprocessed$workclass)
+sum(!complete.cases(df_preprocessed))
+```
+
+  
+Now we don'thave missing values and near zero variance columns. Run the naive bayes algorithm,  
+
+## Naive Bayes algo  
+
+```{r,cache=T,warning=T}
+require(caret)
+require(e1071)
+set.seed(20180417)
+trainIndex <- createDataPartition(df_preprocessed$Income_Class,p=0.9,list=F)
+df_train <- df_preprocessed[trainIndex,]
+df_test <- df_preprocessed[-trainIndex,]
+mod_fit <- naiveBayes(Income_Class~.,data=df_train,laplace = 0)
+pred_values <- predict(mod_fit,df_test[,-11])
+confusionMatrix(df_test$Income_Class ,pred_values)
+```  
+## Naives Bayes alternate.  
+
+```{r klpr_pkg, cache=T,warning=F}
+require(klaR)
+klr_mod = NaiveBayes(Income_Class~.,data=df_train)
+klr_pr <- predict(klr_mod,df_test[,-11])
+confusionMatrix(df_test$Income_Class,klr_pr$class)
+```
+
+It also gives same result albeit innumerable warning messages!!!.  
+
+
+## Try caret for tuning.  
+
+```{r bayes_caret, cache=T, warning=F}
+require(klaR)
+set.seed(20180417)
+
+trCntrl <- trainControl(method='none')
+eg <- expand.grid(fL=c(0,1),usekernel=c(FALSE,TRUE),adjust=c(0,1))
+bayes_caret <- train(Income_Class~., 
+                     data=df_train,
+                     trControl = trCntrl,
+                     method = 'nb',
+                     tuneGrid = data.frame(fL=1,adjust=1,usekernel=TRUE))
+pr2 <- predict(bayes_caret,df_test[,-11])
+confusionMatrix(pr2,df_test$Income_Class)
+```

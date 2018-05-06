@@ -1,0 +1,12 @@
+---
+title: "My Website"
+output: 
+  html_document: 
+    highlight: pygments
+    theme: cerulean
+    toc: yes
+    toc_float: true
+---
+
+This is my website created in Rstudio using RMarkdown. !!
+Objective is to showcase my dat science learning....

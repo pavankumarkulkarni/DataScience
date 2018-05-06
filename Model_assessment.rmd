@@ -1,0 +1,41 @@
+---
+title: "Model assessment"
+output: 
+  html_document: 
+    df_print: kable
+    highlight: pygments
+    theme: cerulean
+    toc: yes
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+---
+## Model Assessment and model selection.
+
+  There are class of methods to assess the model and select model.  
+  
+  Test Error estimation: There are better ways to estimate the test error rate rather than splitting data into 2 sets of training and testing and estimate once. They are called Cross Validations. Most common and widely used cross validation is K-fold cross validation. In this method the data set is divided into k equal parts. Each times one of the k part of data is used for testing the model effectiveness.  Finally all K estimates are averaged out to get test error rate.
+  
+  'boot' is one the packages providing cross validation functionality. Use cv.glm() to calculate cross validation.
+Will feed entire po_dt_raw data set to glm (generalised linear model) to compare test error estimates of 2 models discussed earlier all parameters and vif2 model without V parameter.
+common fold value is 10.
+
+```{r}
+library(boot)
+set.seed(101) # since k folds has randomness, set seed helps to get reproducible results
+lm_all <- glm(PE~.,data = po_dt_raw)
+summary(lm_all)
+vif(lm_all)
+cv_all <- cv.glm(po_dt_raw,lm_all,K=10)
+sqrt(cv_all$delta) # delta is mse... just for the sake  of ease of compare take sqrt to compare with multicollinearity
+```
+
+```{r}
+set.seed(101)
+lm_vif_2 <- glm(PE~AT+AP+RH,data=po_dt_raw)
+summary(lm_vif_2)
+vif(lm_vif_2)
+cv_vif2 <- cv.glm(po_dt_raw,lm_vif_2,K=10)
+sqrt(cv_vif2$delta)
+```
+    

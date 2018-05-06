@@ -1,0 +1,370 @@
+---
+title: "Kaggle-HouseSale"
+output: 
+  html_document: 
+    highlight: pygments
+    number_sections: yes
+    theme: journal
+    toc: yes
+    toc_float: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Load & segregate features.  
+
+```{r load}
+train <- read.csv(".//Data//kaggle_House_Sales.csv",header=T,stringsAsFactors = FALSE)
+test <-  read.csv(".//Data//kaggle_House_Sales_test.csv",header=T,stringsAsFactors = FALSE)
+test$SalePrice <- NA
+all <- rbind(train,test)
+#str(all) to save space
+
+# Id column is simple row count. so remvoing it.
+all <- subset(all,select = -c(Id))
+
+#MSSubClass is categorised as int. However it is number encoded for type of dwelling. It need to be recasted.
+all$MSSubClass <- as.factor(all$MSSubClass)
+
+# SalePrice is the dependent variable. Exlcuding it from features.
+numFeatures <- which(sapply(all[,-80],is.numeric)) 
+charFeatures<- which(sapply(all[,-80], is.character))
+testIds <- test$Id
+
+
+```
+
+# Numeric Features.  
+## Impute missing values.  
+
+```{r numFeats}
+require(ggplot2)
+require(reshape)
+require(dplyr)
+require(gridExtra)
+sum(!complete.cases(all[,numFeatures]))
+names(which(colSums(is.na(all[,numFeatures]))>0))
+# 652 total records where the atleast one of these numFeatures is missing value.
+# Let's explore it visually.
+ggplot(data=(melt(is.na(all[,numFeatures])))) +
+  geom_raster(aes(x=X2,y=X1,fill=value)) +
+  coord_flip()+
+  theme_minimal()+
+  scale_fill_grey(name = "",labels = c("Present","Missing")) 
+
+# three columns are missing values. LotFrontage, GarageYrBlt and MasVnrArea.
+# 1. MasVnrArea. is Masonry veneer area in square feet.
+unique(all[is.na(all$MasVnrArea),c('MasVnrArea','MasVnrType')])
+# all these also have NA 'MasVnrType' meaning there is no masonry area all these NA need to be imputed to zero.
+all$MasVnrArea[is.na(all$MasVnrArea)] <- 0
+
+
+# 2.GarageYrBlt.
+unique(all[is.na(all$GarageYrBlt),c('GarageYrBlt','GarageType')])
+# 2 record with garage type but no garagebuilt area.
+all$GarageYrBlt[c(2127,2577)] <- all$YearRemodAdd[c(2127,2577)]
+head(all[is.na(all$GarageYrBlt),c('GarageYrBlt','GarageType','GarageFinish','GarageCars','GarageArea','GarageQual','GarageCond')])
+# other garages were not built. Coding them to 0.
+all$GarageYrBlt[is.na(all$GarageYrBlt)] <- 0
+
+# 3.LotFrontage. Linear feet of street connected to property. There are 4 lot related features. LotArea, LotShape, LotConfig.
+head(all[is.na(all$LotFrontage),c('LotArea','LotConfig','LotShape','LotFrontage')])
+#Intuition is bigger LotArea to have bigger LotFrontage.Also LotConfig should influence lot frontage. Let's cross verify by visualization.
+L1 <- all[!is.na(all$LotFrontage),c('LotArea','LotConfig','LotShape','LotFrontage')] %>% 
+  group_by(LotShape) %>% summarise(LF_Impu = mean(LotFrontage/sqrt(LotArea)*100))
+
+L2 <- all[!is.na(all$LotFrontage),c('LotArea','LotConfig','LotShape','LotFrontage')] %>% 
+  group_by(LotConfig) %>% summarise(LF_Impu = mean(LotFrontage/sqrt(LotArea)*100))
+
+p1 <- ggplot(data = L1,aes(x=reorder(LotShape,LF_Impu),y=LF_Impu,label=round(LF_Impu))) +
+  geom_bar(stat='identity',width=0.3,fill='purple') +
+  coord_flip() +
+  theme_light() +
+  geom_text(position=position_stack(vjust=0.5))
+
+p2 <- ggplot(data = L2,aes(x=reorder(LotConfig,LF_Impu),y=LF_Impu,label=round(LF_Impu))) +
+  geom_bar(stat='identity',width=0.3,fill='green') +
+  coord_flip() +
+  theme_light() +
+  geom_text(position=position_stack(vjust=0.5))
+grid.arrange(p1,p2,nrow=1)
+
+# as there is more range in the 'impute_ratio' by lotconfig.let's use this to compute LotFrontage.
+temp_tbl <- inner_join(all[is.na(all$LotFrontage),c('LotArea','LotConfig')],L2)
+temp_tbl$LotFrontage <- round(sqrt(temp_tbl$LotArea)*temp_tbl$LF_Impu/100)
+all$LotFrontage[is.na(all$LotFrontage)] <- temp_tbl$LotFrontage
+
+
+# 4. BsmtFinSF1 2577,2121,2189
+all[c(2577,2121,2189),numFeatures]
+all[c(2121,2189),c('BsmtQual','BsmtCond','BsmtExposure','BsmtFinType1','BsmtFinType2','BsmtFinSF1','BsmtFinSF2','BsmtUnfSF','TotalBsmtSF','BsmtFullBath','BsmtHalfBath')]
+# these 2 houses don't have basement. so let's impute 0 for basement numeric features which are nul
+all[c(2121,2189),c('BsmtFinSF1','BsmtFinSF2','BsmtUnfSF','TotalBsmtSF','BsmtFullBath','BsmtHalfBath')] <- 0
+#2577 for Garage
+all[2577,c('MSZoning','MSSubClass','GarageType','GarageYrBlt','GarageFinish','GarageCars','GarageArea','GarageQual','GarageCond')]
+
+
+all[!is.na(all$GarageArea),] %>% filter(MSZoning=='RM',MSSubClass==70) %>%group_by(MSSubClass, MSZoning,GarageType) %>% summarise(mean(GarageArea),mean(GarageCars))
+# based on the average by zone, dwelling and garage type below are manually imputed.
+
+all[2577,c('GarageCars','GarageArea')] <- c(2,430)
+```
+
+## Multicollinearity.  
+
+```{r multicol,fig.width=10,fig.height=10}
+require(stats)
+require(corrplot)
+numFeatures["SalePrice"] <- 80
+corall <- (cor(all[!is.na(all$SalePrice),numFeatures],use='pairwise.complete.obs'))
+coSP <- as.matrix(sort(corall[,'SalePrice'],decreasing = T))
+high_corr <- names(which(apply(coSP,1,function(x) abs(x)>0.4)))
+high_CMatrix = corall[high_corr,high_corr]
+corrplot(high_CMatrix,method='number',type='upper')
+```
+```{r }
+# GarageCars and GarageArea are highly correlated. Dropping 'GarageCars'
+# GrLivArea and TotRmsAbvGrd are correlated. Dropping 'TotRmsAbvGrd'
+# TotalBsmtSF and X1stFlrSF are correlated.Dropping X1stFlrSF.
+# YearBuilt and YearRemodAdd are also in highcorrelated with SalePrice. Newer homes and newly remodelled will have high saleprice. As per the data description, if no remodelled, year built is used. So it will be inflated influence on saleprice. Will add dervied column age of the house (sale year - remodelled) and also will include if it is remodeeled, flag. and drop these yearbuilt and year remodelled columns.
+# there are 4 divided features for bathrooms. None of them are highly correlated.Lets include combined BathRomm column and drop these 4 columns.
+
+all$HouseAge <- all$YrSold - all$YearRemodAdd
+all$Remodelled <- ifelse(all$YearRemodAdd != all$YearBuilt, 'Yes','No')
+all$AllBaths <- all$BsmtHalfBath*0.5 + all$BsmtFullBath + all$HalfBath*0.5 + all$FullBath
+
+all <- subset(all,select = -c(GarageCars,TotRmsAbvGrd,X1stFlrSF,YearBuilt,YearRemodAdd,BsmtFullBath,BsmtHalfBath,FullBath,HalfBath))
+# recheck the correlations.
+
+numFeatures <- which(sapply(all,is.numeric)) 
+corall <- (cor(all[!is.na(all$SalePrice),numFeatures],use='pairwise.complete.obs'))
+coSP <- as.matrix(sort(corall[,'SalePrice'],decreasing = T))
+high_corr <- names(which(apply(coSP,1,function(x) abs(x)>0.4)))
+high_CMatrix = corall[high_corr,high_corr]
+corrplot(high_CMatrix,method='number',type='upper')
+
+```
+
+## Address Skewness.  
+
+```{r skewness}
+require(e1071)
+#Skewness of Dependent variable. SalePrice.
+# both from numbers and histogram see how the skew is 'addressed' with log function.
+skewness(all$SalePrice[!is.na(all$SalePrice)])
+skewness(log(all$SalePrice[!is.na(all$SalePrice)]))
+p1 <- ggplot(data=all[!is.na(all$SalePrice),]) +
+  geom_histogram(aes(x=SalePrice,alpha=0.3),show.legend = F)
+p2 <- ggplot(data=all[!is.na(all$SalePrice),]) +
+  geom_histogram(aes(x=log(SalePrice),alpha=0.3),show.legend = F)
+grid.arrange(p1,p2,ncol=1)
+all$SalePrice[!is.na(all$SalePrice)] <- log(all$SalePrice[!is.na(all$SalePrice)])
+```
+
+```{r skewContin}
+for(cName in numFeatures){
+  if(!is.na(skewness(all[,cName]))){
+    if(skewness(all[,cName])>0.9){
+    all[,cName] <- log(1+all[,cName])
+    }
+  }
+}
+```
+
+# Character Features.  
+
+```{r chaFea}
+charFeatures<- which(sapply(all[,], is.character))
+sum(!complete.cases(all[,charFeatures]))
+```
+All the records have atleast a missing character feature.  
+
+## Imput Missing.  
+```{r misCha, fig.height=10,fig.width=10}
+require(reshape)
+require(ggplot2)
+ggplot(data=melt(is.na(all[,charFeatures])),aes(x=X1,y=X2,fill=value)) +
+  geom_raster()+
+  scale_fill_grey(name="",label=c('Present','Missing'))
+which(colSums(is.na(subset(all,select=-c(SalePrice)))) >0)
+# 44 character features have missing values.
+# All below features NA means 'the feature' does not exist. So they all will be imputed with 'None'
+all$Alley[is.na(all$Alley)] <- 'None'
+all$MasVnrType[is.na(all$MasVnrType)] <- 'None'
+all$BsmtQual[is.na(all$BsmtQual)] <- 'None'
+all$BsmtCond[is.na(all$BsmtCond)] <- 'None'
+all$BsmtExposure[is.na(all$BsmtExposure)] <- 'No'
+all$BsmtFinType1[is.na(all$BsmtFinType1)] <- 'None'
+all$BsmtFinType2[is.na(all$BsmtFinType2)] <- 'None'
+all$FireplaceQu[is.na(all$FireplaceQu)] <- 'None'
+all$Fence[is.na(all$Fence)] <- 'None'
+all$MiscFeature[is.na(all$MiscFeature)] <- 'None'
+
+# Garage family.
+# below all have no garages. So Marking them 'None'.
+NoGrgCond <- (is.na(all$GarageArea) | all$GarageArea ==0 ) &
+            (is.na(all$GarageCond))&
+            (is.na(all$GarageFinish))&
+            (is.na(all$GarageQual))&
+            (is.na(all$GarageType))&
+            (is.na(all$GarageYrBlt )|all$GarageYrBlt==0)
+dim(all[NoGrgCond,c('GarageArea','GarageYrBlt','GarageCond','GarageFinish','GarageQual','GarageType')])
+unique(all[NoGrgCond,c('GarageArea','GarageYrBlt','GarageCond','GarageFinish','GarageQual','GarageType')])
+all$GarageCond[NoGrgCond] <- 'None'
+all$GarageFinish[NoGrgCond] <- 'None'
+all$GarageQual[NoGrgCond] <- 'None'
+all$GarageType[NoGrgCond] <- 'None'
+
+
+all[is.na(all$GarageCond),]
+# 2 rows 2127 and 2577 have GarageFinish, GarageQual and GarageCond are NA while they have Garage type and built year ext. So it is missing data.
+# Garage Quality and Condition to be imputed based on Overall Quality and condition.
+all$GarageQual[c(2127,2577)] <- 'TA'
+all$GarageCond[c(2127,2577)] <- c('Ex','TA')
+
+# pool quality feature
+unique(all[is.na(all$PoolQC),c('PoolArea','PoolQC')])
+# zero pool area means no pool . Imputing poolQC as none.
+all$PoolQC[is.na(all$PoolQC)&all$PoolArea==0] <- 'None'
+all[is.na(all$PoolQC),]
+all$PoolQC[c(2421,2504,2600)] <- c('TA','TA','Fa')
+
+all$Exterior1st[is.na(all$Exterior1st)] <- 'Other'
+all$Exterior2nd[is.na(all$Exterior2nd)] <- 'Other'
+
+all$SaleType[is.na(all$SaleType)] <- 'Oth'
+
+all[is.na(all$GarageFinish),]
+ggplot(data=all[all$GarageType=='Detchd'&all$GarageQual=='TA',],aes(x=all$GarageFinish[all$GarageType=='Detchd'&all$GarageQual=='TA']))+
+  geom_bar(width=0.3)
+#Overwhelmingly they are all 'Unf'
+all$GarageFinish[is.na(all$GarageFinish)] <- 'Unf'
+
+all[is.na(all$Functional),]
+tDt <- all[all$SaleCondition=='Abnorml'&all$Neighborhood=='IDOTRR',]
+ggplot(data=tDt,aes(x=tDt$Functional))+
+  geom_bar(width=0.3)
+all$Functional[is.na(all$Functional)] <- 'Typ'
+
+all[is.na(all$KitchenQual),] # Overall quality id=s 5.
+all$KitchenQual[is.na(all$KitchenQual)] <- 'TA'
+
+all[is.na(all$Electrical),]
+tDt <- all[all$CentralAir == 'Y'&all$Neighborhood=='Timber'&all$Utilities=='AllPub'&all$OverallCond==5,]
+ggplot(data=tDt,aes(x=tDt$Electrical))+
+  geom_bar(width=0.2)
+all$Electrical[is.na(all$Electrical)] <- 'SBrkr'
+all[is.na(all$Utilities),]
+tDt <- all[all$OverallQual==2&all$CentralAir=='N'&all$Electrical=='FuseA',]
+ggplot(data=tDt,aes(x=tDt$Utilities))+
+  geom_bar(width=0.3)
+all$Utilities[c(1916)] <- 'AllPub'
+tDt <- all[all$OverallQual==6&all$CentralAir=='Y'&all$Electrical=='FuseA',]
+ggplot(data=tDt,aes(x=tDt$Utilities))+
+  geom_bar(width=0.3)
+all$Utilities[c(1946)] <- 'AllPub'
+
+all[is.na(all$MSZoning),]
+ggplot(data=all[all$Neighborhood=='IDOTRR'&all$BldgType=='1Fam',],aes(x=all$MSZoning[all$Neighborhood=='IDOTRR'&all$BldgType=='1Fam']))+
+  geom_bar(width=0.2)
+all$MSZoning[c(1916,2217,2251)] <- 'RM'
+ggplot(data=all[all$Neighborhood=='Mitchel'&all$BldgType=='1Fam',],aes(x=all$MSZoning[all$Neighborhood=='Mitchel'&all$BldgType=='1Fam']))+
+  geom_bar(width=0.2)
+all$MSZoning[c(2905)] <- 'RL'
+
+## MoSold is month sold. this is int. month representation. Dec month sold does not necessarily mean higher sale price compared to June month. This need to be converted to factor
+
+all$MoSold <- as.factor(all$MoSold)
+```
+
+
+## Ordinal and regular factors.  
+
+```{r ordRegFact}
+require(plyr)
+require(dplyr)
+
+# all below features are ordinal factors.
+QCond <- c('None'=0,'Po'=1,'Fa'=2,'Ta'=3,'TA'=3,'Gd'=4,'Ex'=5)
+all$ExterQual <- as.integer(revalue(all$ExterQual,QCond))
+all$ExterCond <- as.integer(revalue(all$ExterCond,QCond))
+all$BsmtQual <- as.integer(revalue(all$BsmtQual,QCond))
+all$BsmtCond <- as.integer(revalue(all$BsmtCond,QCond))
+all$HeatingQC <- as.integer(revalue(all$HeatingQC,QCond))
+all$KitchenQual <- as.integer(revalue(all$KitchenQual,QCond))
+all$FireplaceQu <- as.integer(revalue(all$FireplaceQu,QCond))
+all$GarageQual <- as.integer(revalue(all$GarageQual,QCond))
+all$GarageCond <- as.integer(revalue(all$GarageCond,QCond))
+all$PoolQC <- as.integer(revalue(all$PoolQC,QCond))
+
+BsmExp <- c('No'=0,'Mn'=1,'Av'=2,'Gd'=3)
+all$BsmtExposure <- as.integer(revalue(all$BsmtExposure,BsmExp))
+
+BsmFin <- c('None'=0,'Unf'=1,'LwQ'=2,'Rec'=3,'BLQ'=4,'ALQ'=5,'GLQ'=6)
+all$BsmtFinType1 <- as.integer(revalue(all$BsmtFinType1,BsmFin))
+all$BsmtFinType2 <- as.integer(revalue(all$BsmtFinType2,BsmFin))
+
+CA <- c('N'=0,'Y'=1)
+all$CentralAir <- as.integer(revalue(all$CentralAir,CA))
+
+FunCon <- c('Sal'=0,'Sev'=1,'Maj2'=2,'Maj1'=3,'Mod'=4,'Min2'=5,'Min1'=6,'Typ'=7)
+all$Functional <- as.integer(revalue(all$Functional,FunCon))
+
+#Remaining character features are all regular factors. They can be converted to factors.
+# Neighborhood has big number of levels. Let's explore if they can be binned.
+tDt <- all[!is.na(all$SalePrice),c('Neighborhood','SalePrice')]
+ggplot(data=tDt,aes(x=reorder(tDt$Neighborhood,exp(tDt$SalePrice)),y=exp(tDt$SalePrice)))+
+  geom_bar(stat= 'summary',fun.y='mean',fill='lightgreen') +
+  coord_flip()
+NeiCond <- c('NoRidge'=3,'NridgHt'=3,'StoneBr'=3,'Timber'=2,'Veenker'=2,'Somerst'=2,'ClearCr'=2,'Crawfor'=2,'CollgCr'=2,'Blmngtn'=2,'Gilbert'=2,'NWAmes'=2,'SawyerW'=2,'Blueste'=1,'BrDale'=1,'BrkSide'=1,'Edwards'=1,'IDOTRR'=1,'MeadowV'=1,'Mitchel'=1,'NAmes'=1,'NPkVill'=1,'OldTown'=1,'SWISU'=1,'Sawyer'=1)
+all$Neighborhood <- as.integer(revalue(all$Neighborhood,NeiCond))
+
+```
+## OnehotEncoding.  
+
+```{r onhotEnc}
+require(caret)
+df <- dummyVars(~.,data=all,fullRank = T)
+all_m <- data.frame(predict(df,newdata = all))
+dim(all_m)
+dim(all)
+train_m <- all_m[!is.na(all_m$SalePrice),]
+test_m <- all_m[is.na(all_m$SalePrice),]
+
+```
+
+## NearZeroVariance variable.  
+
+```{r nzv}
+# identify 0 colsum in train and test sets.
+cols <- which(colSums(all_m[!is.na(all_m$SalePrice),])==0)
+all_m <- subset(all_m,select=-c(cols))
+cols <- which(colSums(all_m[is.na(all_m$SalePrice),])==0)
+all_m <- subset(all_m,select=-c(cols))
+
+# identify 15 colsum in train and test sets. 10% variance
+cols <- which(colSums(all_m[!is.na(all_m$SalePrice),])<16)
+all_m <- subset(all_m,select=-c(cols))
+cols <- which(colSums(all_m[is.na(all_m$SalePrice),])<16)
+all_m <- subset(all_m,select=-c(cols))
+train_m <- all_m[!is.na(all_m$SalePrice),]
+test_m <- all_m[is.na(all_m$SalePrice),]
+```
+
+# LASSO Elastic regression model.  
+
+```{r lasso}
+require(caret)
+tCntrol <- trainControl(method='repeatedcv',number=10,repeats=3)
+gSearch <- expand.grid(alpha=1,lambda = seq(0.001,0.1,0.0005))
+modFit <- train(SalePrice~.,data=train_m,
+                method='glmnet',
+                trControl = tCntrol,
+                tuneGrid=gSearch)
+lass_Predict <- predict(modFit,test_m)
+lass_Predict <- exp(lass_Predict)
+write.csv(cbind(testIds,lass_Predict),'.\\Data\\LassoHousePricePredict.csv')
+```

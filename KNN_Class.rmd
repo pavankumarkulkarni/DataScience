@@ -1,0 +1,130 @@
+---
+title: "Classification - K nearest neighbor"
+output: 
+  html_document: 
+    highlight: pygments
+    number_sections: yes
+    theme: journal
+    toc: yes
+    toc_float: yes
+---
+# Introduction.  
+
+Given positive K, the algorithm finds K nearest neighbors. Class of maximum k nearest neighbors will be assigned to the observation. Smaller K results in most flexible algorithm. The boundary will be wiggly. Training error will be lowest test error may not. Higher K makes the algorithm less flexible. It does not assume any distribution or boundary of seperation.
+
+## Sample dataset : Caravan dataset.  
+We shall see the knn algorith effectiveness in same caravan dataset on which logit regression was run [here](Log_Reg.html).  
+
+### kNN algorithm using *caret*.  
+
+Dependent variables need to be scaled and centered before kNN is run.  
+
+```{r rCar_EDA, cache=TRUE,warning=FALSE}
+library(caret)  ## main package used for most of analytics.
+require(ISLR)   ## caravan package.
+attach(Caravan)
+summary(Caravan[,c(seq(1,4))]) # save print space.. take only first 5 columns.
+```
+### Pre-processing to scale and center.  
+
+caret package has preProcess. It is 2 step process *preProcess* and *predict*.  
+Standardizing is for numerical independent variables only.  
+*Purchase* is dependent variable of type factor.
+
+```{r preProc,warning=TRUE,cache=TRUE, warning=FALSE}
+x_cols <- colnames(Caravan[,colnames(Caravan)!= 'Purchase'])
+ppr_car <- preProcess(Caravan[,x_cols],
+                      method = c("center","scale"))
+crvn_X_scaled <- predict(ppr_car,
+                         Caravan[,x_cols])
+summary(crvn_X_scaled[,seq(1,4)])
+crvn_Y_scaled <- Caravan$Purchase
+sum(is.na(Caravan)) # No missing records.
+```
+
+### Set up test and train split  
+
+Using 80% train and 20% test split.  
+
+* The test data is highly imbalanced.  
+* Use downSample to balance the class.  
+* The data is highly imbalanced. Use downSample option to have same % of 'Yes' and 'No.  
+
+```{r rCar_traintest, warning=TRUE,cache=TRUE}
+set.seed(786)
+require(caret)
+trainIndex <- createDataPartition(crvn_Y_scaled,p=0.8,list=FALSE)
+crvn_X_scaled_train <- crvn_X_scaled[trainIndex,]
+crvn_X_scaled_test <- crvn_X_scaled[-trainIndex,]
+crvn_Y_scaled_train <- crvn_Y_scaled[trainIndex]
+crvn_Y_scaled_test <- crvn_Y_scaled[-trainIndex]
+table(crvn_Y_scaled_train)
+crvn_scaled_balnce <- downSample(crvn_X_scaled_train,crvn_Y_scaled_train,yname = "Purchase")
+table(crvn_scaled_balnce$Purchase)
+```   
+We now have same balanced training set.
+
+### Run kNN and tune.  
+* kNN uses the first value in predictor class as positive.  
+* 'No' is positive class and 'Yes' is negative class.  
+* We are interested in finding as many 'Yes' correctly as possible even at the expense of overall less accuracy.  
+* So **Specificity** also called 'True Negative' class as maximizing metric.  
+* will get Sensitivity and Specificity.
+
+```{r crvn_kNN_spec,cache=TRUE, warning=FALSE }
+tCtrl <- trainControl(method = "repeatedcv", 
+                      number = 10 , 
+                      repeats = 3,
+                      classProbs = TRUE, 
+                      # to overwrite default performance metrics to Specificity and Sensitivity
+                      # default performance metric is Accuracy and Kappa
+                      summaryFunction = twoClassSummary)
+kNN_fit_spe <- train(Purchase~., 
+                     data=crvn_scaled_balnce, 
+                     method = 'knn',tuneLength=50 ,
+                     trControl = tCtrl, #tuneGrid = grid,
+                     metric = "Spec")
+plot(kNN_fit_spe)
+kNN_fit_spe
+plot(kNN_fit_spe, metric = "Sens")
+plot(kNN_fit_spe, metric = "ROC")
+
+knn_pred_spe<- predict(kNN_fit_spe,crvn_X_scaled_test)
+cfn <- confusionMatrix(knn_pred_spe,crvn_Y_scaled_test)
+cfn
+```  
+
+- Test specificity based on best model on training Specificity is `r cfn$byClass['Specificity']*100` %.  
+
+
+### Other Optimizing matics.  
+
+**Default performance matrics**  
+
+*Accuracy and Kappa* are the default performance metrics.  
+
+
+```{r kNN_ACC, warning=TRUE,cache=TRUE}
+tCtrl <- trainControl(method = "repeatedcv", 
+                      number = 10 , 
+                      repeats = 3)
+
+kNN_fit1 <- train(Purchase~., 
+                  data=crvn_scaled_balnce, 
+                  method = 'knn',
+                  tuneLength=50 ,
+                  trControl = tCtrl,
+                  metric = "Accuracy")
+
+plot(kNN_fit1)
+kNN_fit1
+plot(kNN_fit1, metric = "Kappa")
+
+knn_pred1 <- predict(kNN_fit1,crvn_X_scaled_test)
+cfn <- confusionMatrix(knn_pred1,crvn_Y_scaled_test)
+cfn
+```  
+
+- Specificity on the test data is based on best model by 'Accuracy' `r cfn$byClass['Specificity']*100` %. 
+
+

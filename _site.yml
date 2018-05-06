@@ -1,0 +1,51 @@
+name: my-website
+navbar:
+  title: Data Science
+  left:
+  - text: Supervised Learning
+    menu:
+    - text: Linear Regression Part 1
+      href: SLR_P1.html
+    - text: Linear Regression Part 2
+      href: SLR_P2.html
+    - text: Multicollinearity
+      href: MC.html
+    - text: Model Assess
+      href: Model_assessment.html
+    - text: Time Series Analysis
+      href: tSeries.html
+    - text: Classification - Naive Bayes
+      href: Nai_Bay.html
+    - text: Classification - Support Vector Machines
+      href: SVM.html
+    - text: Classification - Logistic Regression
+      href: Log_Reg.html
+    - text: Classification - KNN
+      href: KNN_Class.html
+    - text: Classification - Rule Learner
+      href: Rul_Ler.html
+    - text: Classification - Decision Trees
+      href: Dec_Tree.html
+  - text: Unsupervised Learning
+    menu:
+    - text: Principal Component Analysis
+      href: pca_ul.html
+    - text: K-means clustering
+      href: kmeans_clust.html
+    - text: Hierarchial Clustering
+      href: hier_clust.html
+  - text: Dataset Analysis
+    menu:
+    - text: German Bank Default(UCI)
+      href: germ_bandef.html
+    - text: Kaggle Hose Sale
+      href: Kaggle_HouseSale.html      
+    href: Project_Euler_Perl_Sol.html
+  - text: Euler Perl Soln
+    href: Project_Euler_Perl_Sol.html
+output_dir: _site
+output:
+  html_document:
+    lib_dir: site_libs
+    self_contained: no
+

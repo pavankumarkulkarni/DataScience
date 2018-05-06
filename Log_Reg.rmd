@@ -1,0 +1,163 @@
+---
+title: "Logistic Regression -Classification"
+output: 
+  html_document: 
+    highlight: pygments
+    number_sections: yes
+    theme: journal
+    toc: yes
+    toc_float: yes
+---
+#Introduction:  
+
+  Logistic regression is a special case of regression where the dependent variable is binary variable rather than continuous. So it is applicable for classification problems where expected output is in 2 classes. Dependent variable is related to linear combination of independent variables by link function. The link function is log hence the name logic regression.  
+  
+# Application on sample datasets.  
+## **Caravan** dataset:  
+
+### Load and analyse data.
+  * The dataset is available in ISLR package.  
+  * 5,822 observations with 86 variables.  
+  * Purchase is dependent variable with 'Yes' and 'No' values.  
+  * The data is skewed on 'Purchase' dependent variable with only `r 348/5474*100` % 'Yes.  
+  * No Missing Data.
+
+```{r caravan_load, cache=TRUE,warning=FALSE}
+require(ISLR)
+attach(Caravan)
+dim(Caravan)
+summary(Caravan$Purchase)
+sum(is.na(Caravan))
+```
+### LOGIT Regression on raw data.
+
+```{r logit_rawData, cache=TRUE, warning=FALSE}
+set.seed(16574)
+train <- sample(seq(1:nrow(Caravan)),nrow(Caravan)*0.8)
+raw_train <- Caravan[train,]
+raw_test <- Caravan[-train,]
+#raw_train_y <- Caravan[train,86]
+#raw_test_y <- Caravan[-train,86]
+cv_mod_fit <- glm(Purchase~.,family='binomial',data = raw_train)
+summary(cv_mod_fit)
+rm_pre <- predict(cv_mod_fit,raw_test[,-86],type = 'response')
+rm_pre_cd <- ifelse(rm_pre > 0.5, 'Yes','No')
+summary(as.factor(rm_pre_cd))
+table(rm_pre_cd,raw_test[,86])
+```  
+  
+- Error rate of this 'raw' Logit model is `r (10+79)/(10+2+79+1074)*100`%.  
+
+- On the face of it this 7% error rate is not bad. However the data has only 6% purchase rate. So if we just say none will purchase the insurance it will have error rate of 6%.  
+
+- The business is more interested in knowing what parameters/variables will increase probability ofpurchase.  
+
+- So we should model on modified data which is more balanced toward Purchase 'yes' values.  
+
+- Concentrating on more important class of Purchase 'Yes', the test set has 81. Only 2 are correctly identified. It is not acceptable performance.  
+
+- As indicated earlier data split for training the model need to happen skewed more towards 'Yes'. First the p-values for most of the independent variables is non significant. Non significant variables just add noise test set causing the error. Lets try selecting only statistically significant variables.  
+
+### LOGIT on only significant parameters.
+
+```{r CV_sel_params, cache=TRUE, warning=FALSE}
+cv_mod2 <- glm(Purchase~PPERSAUT+PTRACTOR+PBRAND+ATRACTOR+APLEZIER,family='binomial',data = raw_train)
+summary(cv_mod2)
+pred2 <- predict(cv_mod2,raw_test[,c('PPERSAUT','PTRACTOR','PBRAND','ATRACTOR','APLEZIER')],type = 'response')
+rm_pre_cd2 <- ifelse(pred2 > 0.5, 'Yes','No')
+summary(as.factor(rm_pre_cd2))
+table(rm_pre_cd2,raw_test[,86])
+```
+  
+- This much simpler model achieved error rate of `r 81/(81+1084)*100`%.  
+- Little worse in 'yes' class.  
+- Need to try resampling data.
+
+
+### LOGIT after balancing - DownSampling 
+
+- Use CARET package for resampling,
+
+```{r LOGIT_CARET, cache=TRUE, warning=FALSE}
+require(caret)
+train <- createDataPartition(Caravan$Purchase,p=0.8,list=FALSE)
+car_train <- Caravan[train,]
+car_test <- Caravan[-train,]
+summary(car_train$Purchase) # 279 Yes. using downsample to balance
+bal_car_train <- downSample(car_train[,colnames(subset(car_train,select = -c(Purchase)))],car_train$Purchase,list=FALSE, yname = 'Purchase')
+bal_mod <- glm(Purchase~.,family='binomial',data = bal_car_train)
+summary(bal_mod)
+bal_pred <- predict(bal_mod,car_test[,-86])
+bal_pred_cd <- ifelse(bal_pred > 0.5, 'Yes', 'No')
+table(bal_pred_cd)
+table(car_test$Purchase)
+table(bal_pred_cd, car_test$Purchase)
+```
+
+
+- Out of 69 observed 'yes' the model correctly identified 37 which is `r 37/69*100` %.  
+- Huge improvement in true positive at expense of slightly worse overall error rate which is at `r (32+259)/(835+37+32+259)*100`%.
+
+### LOGIT after balancing - upsampling  
+
+- Use CARET package for resampling,
+
+```{r LOGIT_CARET_up, cache=TRUE, warning=FALSE}
+require(caret)
+train <- createDataPartition(Caravan$Purchase,p=0.8,list=FALSE)
+car_train <- Caravan[train,]
+car_test <- Caravan[-train,]
+summary(car_train$Purchase) # 279 Yes. using downsample to balance
+bal_car_train <- upSample(car_train[,colnames(subset(car_train,select = -c(Purchase)))],car_train$Purchase,list=FALSE, yname = 'Purchase')
+bal_mod <- glm(Purchase~.,family='binomial',data = bal_car_train)
+summary(bal_mod)
+bal_pred <- predict(bal_mod,car_test[,-86])
+bal_pred_cd <- ifelse(bal_pred > 0.5, 'Yes', 'No')
+table(bal_pred_cd)
+table(car_test$Purchase)
+table(bal_pred_cd, car_test$Purchase)
+```
+
+
+- True positive rate of `r 35/(69)*100`  
+- Overall error rate of `r (181+34)/(181+34+913+35)*100`
+
+
+### LOGIT Cross validation  
+
+```{r car_crossVal, cache=TRUE, warning=FALSE}
+trn_cntr <- trainControl(method='cv',number=10,repeats=10)
+cv_mod <- train(Purchase~.,data=bal_car_train,method='glm',trControl = trn_cntr)
+#summary(cv_mod)
+cv_mod_pred_cd <- predict(cv_mod,car_test[,-86])
+table(cv_mod_pred_cd)
+table(car_test$Purchase)
+table(cv_mod_pred_cd, car_test$Purchase)
+
+```
+
+
+- 10 fold cross validation is used on LOGIT regression to select best model trained on data which is balanced.  
+- True positive rate is `r 45/69*100`%.  
+- Overall error rate is `r (307+24)/(307+45+24+787)*100` %.
+
+
+
+
+
+
+
+```{r bank_load_data, cache=TRUE,warning=FALSE,fig.width=14,fig.height=12}
+df_raw = read.table(".\\Data\\bank-full.csv",header=TRUE,sep=';',quote=NULL,stringsAsFactors = TRUE)
+df_raw[] <- sapply(df_raw, function(x){gsub("\"","",x)})
+colnames(df_raw) <- c('age','job','maritual_status','education','defaulted','balance','housing','loan','contact','day','month','duration','campaign','pdays','previous','poutcome','y')
+df_raw[,c(1,6,10,12,13,14,15)] <- lapply(df_raw[,c(1,6,10,12,13,14,15)],function(x){as.numeric(x)})
+df_raw[,c(2,3,4,5,7,8,9,11,16,17)] <- lapply(df_raw[,c(2,3,4,5,7,8,9,11,16,17)],function(y){as.factor(y)})
+df_mod <- df_raw[,-c(9,10,11,12,14)]
+summary(df_mod)
+```
+
+```{r bank_EDA, cache=TRUE,warning=FALSE}
+require(GGally)
+ggpairs(df_mod,upper = list(combo = 'box_no_facet'))
+```

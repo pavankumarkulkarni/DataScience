@@ -1,0 +1,168 @@
+---
+title: "Decision Trees for Classification"
+output: 
+  html_document: 
+    highlight: pygments
+    number_sections: yes
+    theme: journal
+    toc: yes
+    toc_float: TRUE
+---
+# Introduction.  
+* Decision Trees are great tools which can be used for both classification and regression.  
+* These use heuristic recrsive partitioning.  
+* Partitioning is done based on criteria such as Entropy, Information gain, Chi index etc.  
+* In popularion C5.0 algowithm entropy is used.  
+* The split should cause maximum entropy difference.  
+* Tree can be built till  
+    - No more features to split on.  
+    - All the members of the class are homogeneous.  
+    - Some criteria such as level of tree etc is reached.  
+* Very big tree can overfit the training data and may perform poorly on unseen test data while increasing the complexity.  
+* To avoid this tree pruning is done to make is generalised and simpler.  
+    - Pre-pruning : Tree is not built till the end. It is grown only till certain predefined criteria is met. Computationally good. However it might miss subtle data patterns in later paritions.  
+    - Post pruning : The tree is built to the largest possible, It is pruned back based on predefined error rate.  More widely used.  
+    
+# Application on sample datasets.  
+
+## Loan default.  
+
+The dataset is available in public domain at [UCI Machine Learning](https://archive.ics.uci.edu/ml/datasets/Statlog+%28German+Credit+Data%29).  
+Description of the data can be found at the UCI website.  
+
+### Load data.  
+```{r def_load, cache=T, warning=F}
+df_raw <- read.csv('.//Data//German_BankLoan_Default.csv', sep="",header=F)
+df_raw$V21 <- as.factor(df_raw$V21) # Independent variable is read as numeric by default. 1 is good and 2 is default.
+
+```
+### Analysis of data.  
+* There are no missing values.  
+* There seems to be only one nearZeroVar column which is foreign worker. The data has 37 foregin worker. This may be important variable. So including it in the modeeling for now.  
+
+```{r def_EDA, cache=T,warning=F}
+require(caret)
+sum(is.na(df_raw)) # No missing values.
+nearZeroVar(df_raw,freqCut = 95/5)
+summary(df_raw$V20)
+```
+
+### Train & Test Split.  
+* Create 90% train and 10% test with same dependent variable ratio in test and train as in original.  
+
+```{r def_TTSplit, cache=T, warning=F}
+trainIndex <- createDataPartition(df_raw$V21,p=0.9,list=F)
+df_train <- df_raw[trainIndex,]
+df_test <- df_raw[-trainIndex,]
+table(df_raw$V21)
+table(df_train$V21)
+table(df_test$V21)
+```
+
+### Run C5.0.
+
+Run the C5.0 from c50 package now and in later sections use caret to tune the model.  
+
+```{r def_c50, cache=T, warning=T}
+require(C50)
+set.seed(20180409)
+def_base_mod <- C5.0(V21~.,data=df_train, trials = 1)
+summary(def_base_mod)
+pred_base <- predict(def_base_mod,df_test[,-21],type='class')
+cfn <- confusionMatrix(pred_base,df_test$V21)
+cfn
+```
+
+- This 'base' model produced `r cfn$overall['Accuracy']*100`% overall accuracy.  
+- Only `r cfn$byClass['Specificity']*100`% rate of correct prediction of default in test dataset.  
+
+### Improve the model by increasing trials.  
+
+```{r def_c50Trial, cache=T,warning=T}
+set.seed(20180411)
+def_trl_mod <- C5.0(V21~.,data=df_train, trials = 10)
+pred_trl <- predict(def_trl_mod,df_test[,-21],type='class')
+cfn <- confusionMatrix(pred_trl,df_test$V21)
+cfn
+```
+
+- This rvised model produced `r cfn$overall['Accuracy']*100`% overall accuracy.  
+- Only `r cfn$byClass['Specificity']*100`% rate of correct prediction of default in test dataset.   
+
+### Further model tune by cost metrix.  
+```{r def_tune_cm, cache=T,warning=T}
+set.seed(20180410)
+cMet <- matrix(data = c(0,1,4,0),nrow=2 , dimnames = list(c('1','2'),c('1','2')))
+def_trl_cm_mod <- C5.0(V21~.,data=df_train, costs = cMet)
+summary(def_trl_cm_mod)
+#pred_trl_cm <- predict(def_trl_cm_mod,df_test[,-21],type='class')
+#cfn <- confusionMatrix(pred_trl_cm,df_test$V21)
+#cfn
+```
+- This cost weighted model produced `r cfn$overall['Accuracy']*100`% overall accuracy on test data.  
+- Only `r cfn$byClass['Specificity']*100`% rate of correct prediction of default in test dataset.  
+  
+- By adjusting the cost, we now predicted more default at the cost of overall less accuracy!!.  
+
+- Since we are saying identifying true default is very critical (as missing default can cost bank a lot compared to opportunity of earning interest), the model is erring at default. We now have more applications marked as default.  
+
+### Tuning with caret.  
+
++ Dependent variable is a factor with level 1 and 2. Caret needs them to be in valid R names. Hence created one more variable V22 with 'No_Default' (for 1) and 'Yes_Default' (for 2).  
++ 'Yes_Default' is negative class. So we need to increase the Specificity  
++ In the first approach - Use 'C5.0' model. It has Probabulity True so using summaryFunction twoClassSummary to maximise on Specificity.  
++ In the second approach will use C5.0Cost model and cost matric to optimise high 'yes_default' detection rate.
+
+```{r def_caret, cache=T,warning=T}
+require(caret)
+require(C50)
+df_train$V22 <- as.factor(ifelse(df_train$V21 == 1, 'No_Default', 'Yes_Default'))
+tunCtrl <- trainControl(method='repeatedcv',
+                        number=10,
+                        repeats=3,
+                        summaryFunction = twoClassSummary,
+                        classProbs = TRUE)
+car_c50_mod <- train(V22~.-V21,data=df_train,
+                     method='C5.0',
+                     #tuneLength=4,
+                     trControl=tunCtrl,                     
+                     metric='Spec'
+                     )
+car_c50_mod$results
+plot(car_c50_mod,metric='Spec')
+carPred <- predict(car_c50_mod,df_test)
+df_test$V22 <- as.factor(ifelse(df_test$V21 == 1, 'No_Default', 'Yes_Default'))
+cfn <- confusionMatrix(carPred,df_test$V22)
+cfn
+```
+  
+- This model produced `r cfn$overall['Accuracy']*100`% overall accuracy on test data.  
+- Only `r cfn$byClass['Specificity']*100`% rate of correct prediction of default in test dataset.  
+  
+
+### caret - tune using cost matric.  
+
+```{r car_cst, cache=T,warning=T}
+#cMet2 <- matrix(data = c(0,1,4,0),nrow=2 , dimnames = list(c('No_Default','Yes_Default'),c('No_Default','Yes_Default')))
+cMet3 <- matrix(data = c(0,4,4,0),nrow=2)
+sGrid <- expand.grid(trials = c(1,4),
+                     model= 'tree',
+                     winnow=FALSE,
+                     cost = cMet3)
+tuneCtr <- trainControl(method = 'repeatedcv',
+                        number = 5,
+                        repeats =2)
+car2_mod <- train(V22~.-V21,data=df_train,
+                     method='C5.0Cost',
+                     trControl=tuneCtr,
+                     tuneGrid = sGrid)
+
+car2_mod
+
+cPred2 <- predict(car2_mod,df_test)
+cfn <- confusionMatrix(cPred2,df_test$V22)
+cfn
+```
+  
+- This model produced `r cfn$overall['Accuracy']*100`% overall accuracy on test data.  
+- Only `r cfn$byClass['Specificity']*100`% rate of correct prediction of default in test dataset.  

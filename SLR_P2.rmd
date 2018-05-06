@@ -1,0 +1,71 @@
+---
+title: "SLR Continued ... "
+output: 
+  html_document: 
+    df_print: kable
+    highlight: pygments
+    theme: cerulean
+    toc: yes
+    toc_float:
+      collapsed: false
+      smooth_collapse: false
+---
+
+
+### Second objective - to predict output for data not observed .
+
+This is ofcourse simulated when we split the data into train and test. test dataset (only independed variables) are fed to the model and measure model predicted values against observed data
+
+```{r cache=TRUE,warning=FALSE}
+
+mod_prd <- predict(lm_model, po_dt_test[,c('AT','V','AP','RH')]) # predict the values on 'test' subeset of the data 
+library(magrittr)
+(mod_prd - po_dt_test$PE)^2 %>% mean() %>% sqrt()
+```
+RMSE root mean squared error is 4.4919. on test data.
+
+#### Residuals vs fitted values grpah for predicted values
+Try to build the graph from scratch ... Hopefully make it more appealing.
+
+```{r cache=TRUE,warning=FALSE}
+library(gridExtra)
+d <- po_dt_test 
+d$predict <- mod_prd
+d$residual <- d$predict - d$PE
+p1 <- ggplot(d,aes(x=d$AT,y=d$PE)) +
+  theme_bw() +
+  geom_point(aes(color=abs(d$residual)),alpha=0.3,size=sqrt(1+abs(d$residual))) +
+  scale_color_continuous(low='black',high='red') +
+  guides(color=FALSE) +
+  geom_segment(aes(xend=d$AT,yend=d$predict),alpha=0.2) +
+  geom_point(aes(y=d$predict),shape=3,alpha=0.3) +
+  labs(x = 'Atmospheric Temperature', y = 'Power Output', title = 'Error plot for AE')
+p1
+p2 <- ggplot(d,aes(x=d$V,y=d$PE)) +
+  theme_bw() +
+  geom_point(aes(color=abs(d$residual)),alpha=0.3,size=sqrt(1+abs(d$residual))) +
+  scale_color_continuous(low='black',high='red') +
+  guides(color=FALSE) +
+  geom_segment(aes(xend=d$V,yend=d$predict),alpha=0.2) +
+  geom_point(aes(y=d$predict),shape=3,alpha=0.3) +
+  labs(x = 'Vaccum', y = 'Power Output', title = 'Error plot for V')
+p3 <- ggplot(d,aes(x=d$AP,y=d$PE)) +
+  theme_bw() +
+  geom_point(aes(color=abs(d$residual)),alpha=0.3,size=sqrt(1+abs(d$residual))) +
+  scale_color_continuous(low='black',high='red') +
+  guides(color=FALSE) +
+  geom_segment(aes(xend=d$AP,yend=d$predict),alpha=0.2) +
+  geom_point(aes(y=d$predict),shape=3,alpha=0.3) +
+  labs(x = 'Atmospheric Pressure', y = 'Power Output', title = 'Error plot for AP')
+p4 <- ggplot(d,aes(x=d$RH,y=d$PE)) +
+  theme_bw() +
+  geom_point(aes(color=abs(d$residual)),alpha=0.3,size=sqrt(1+abs(d$residual))) +
+  scale_color_continuous(low='black',high='red') +
+  guides(color=FALSE) +
+  geom_segment(aes(xend=d$RH,yend=d$predict),alpha=0.2) +
+  geom_point(aes(y=d$predict),shape=3,alpha=0.3) +
+  labs(x = 'Relative Humidity', y = 'Power Output', title = 'Error plot for RH')
+
+grid.arrange(p1,p2,p3,p4,ncol=2)
+
+```
